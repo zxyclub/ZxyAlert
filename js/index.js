@@ -373,6 +373,10 @@ function renderMessage(template, data, remindDays) {
 }
 
 async function sendMessage(channel, message) {
+    if (channel.type === 'wxtpl') {
+        throw new Error('微信公众号模板消息需要在 GitHub Actions 中发送，请在网页端保存配置后触发 workflow');
+    }
+
     if (!channel.webhook) {
         throw new Error('渠道 Webhook 未配置');
     }
