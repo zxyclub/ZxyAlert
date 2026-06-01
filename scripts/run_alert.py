@@ -135,12 +135,27 @@ def send_message(channel, message):
         access_token = token_data['access_token']
         
         send_url = f"https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={access_token}"
+        
+        data_payload = {
+            'first': {'value': '💡', 'color': '#173177'},
+            'nextDate': {'value': '', 'color': '#173177'},
+            'daysLeft': {'value': '', 'color': '#173177'}
+        }
+        
+        if isinstance(message, dict):
+            if message.get('first'):
+                data_payload['first']['value'] = message['first']
+            if message.get('nextDate'):
+                data_payload['nextDate']['value'] = message['nextDate']
+            if message.get('daysLeft'):
+                data_payload['daysLeft']['value'] = str(message['daysLeft'])
+        else:
+            data_payload['first']['value'] = message
+        
         payload = {
             'touser': open_id,
             'template_id': template_id,
-            'data': {
-                'first': {'value': message, 'color': '#173177'}
-            }
+            'data': data_payload
         }
         
         response = requests.post(send_url, json=payload)
@@ -160,13 +175,16 @@ def send_message(channel, message):
 
 def should_remind(data, remind_days):
     if not data.get('nextPeriodPredicted'):
+        print(f"  [Debug] 数据源中无 nextPeriodPredicted 字段，数据: {data}")
         return False
     
     try:
         next_date = datetime.strptime(data['nextPeriodPredicted'], '%Y-%m-%d')
         days_left = (next_date - datetime.now()).days
+        print(f"  [Debug] 提醒检查: nextPeriodPredicted={data['nextPeriodPredicted']}, days_left={days_left}, remind_days={remind_days}")
         return 0 <= days_left <= remind_days
-    except:
+    except Exception as e:
+        print(f"  [Debug] 日期解析失败: {e}")
         return False
 
 def run():
@@ -218,11 +236,49 @@ def run():
                             except:
                                 pass
                         print(f"Skipping: {days_left} days left (outside remind range)")
-                        continue
-                    
-                    message = render_message(task.get('message', ''), mapped_data)
+                        
+                        # 临时测试模式：提醒检查失败时也发送简单消息
+                        print(f"  [Debug] 测试模式：发送简单测试消息")
+                        if channel['type'] == 'wxtpl':
+                            message = {
+                                'first': '🔔 测试消息：GitHub Actions 运行成功！',
+                                'nextDate': '-',
+                                'daysLeft': '-'
+                            }
+                        else:
+                            message = "🔔 测试消息：GitHub Actions 运行成功！提醒条件暂未满足，但流程正常"
+                    else:
+                        if channel['type'] == 'wxtpl':
+                            # 为微信模板消息构建专门的字典格式
+                            message = {}
+                            today = datetime.now()
+                            
+                            if mapped_data.get('nextPeriodPredicted'):
+                                try:
+                                    next_date = datetime.strptime(mapped_data['nextPeriodPredicted'], '%Y-%m-%d')
+                                    days_left = (next_date - today).days
+                                    message['daysLeft'] = str(days_left)
+                                    message['nextDate'] = next_date.strftime('%Y年%m月%d日')
+                                    message['first'] = f"距离例假还有 {days_left} 天！"
+                                except:
+                                    message['first'] = '💡'
+                                    message['nextDate'] = '-'
+                                    message['daysLeft'] = '-'
+                            else:
+                                message['first'] = '💡'
+                                message['nextDate'] = '-'
+                                message['daysLeft'] = '-'
+                        else:
+                            message = render_message(task.get('message', ''), mapped_data)
                 else:
-                    message = task.get('message', '提醒任务执行')
+                    if channel['type'] == 'wxtpl':
+                        message = {
+                            'first': task.get('message', '提醒任务执行'),
+                            'nextDate': '-',
+                            'daysLeft': '-'
+                        }
+                    else:
+                        message = task.get('message', '提醒任务执行')
                 
                 send_message(channel, message)
                 print(f"Successfully sent message for task: {task['taskName']}")
