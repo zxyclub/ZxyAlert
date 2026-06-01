@@ -1,12 +1,11 @@
 import os
 import json
 import requests
-from datetime import datetime
-import re
+from datetime import datetime, timedelta
 
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
-CONFIG_GIST_ID = os.environ.get('CONFIG_GIST_ID')
-GIST_OWNER = os.environ.get('GIST_OWNER')
+GITHUB_TOKEN = os.environ.get('MY_TOKEN')
+CONFIG_GIST_ID = os.environ.get('MY_CONFIG_GIST_ID')
+GIST_OWNER = os.environ.get('MY_GIST_OWNER')
 
 def fetch_gist_content(gist_id, owner, file_name=None):
     url = f"https://api.github.com/gists/{gist_id}"
@@ -72,17 +71,25 @@ def map_fields(data, field_map):
         result[key] = value
     return result
 
-def render_message(template, data, remind_days):
+def render_message(template, data):
     message = template
     today = datetime.now()
     
-    if data.get('lastPeriodDate') and data.get('cycleDays'):
-        last_date = datetime.strptime(data['lastPeriodDate'], '%Y-%m-%d')
-        next_date = last_date.replace(day=last_date.day + int(data['cycleDays']))
-        days_left = (next_date - today).days
-        data['daysLeft'] = days_left
-        data['nextDate'] = next_date.strftime('%Y年%m月%d日')
-        data['lastDate'] = last_date.strftime('%Y年%m月%d日')
+    if data.get('nextPeriodPredicted'):
+        try:
+            next_date = datetime.strptime(data['nextPeriodPredicted'], '%Y-%m-%d')
+            days_left = (next_date - today).days
+            data['daysLeft'] = days_left
+            data['nextDate'] = next_date.strftime('%Y年%m月%d日')
+        except:
+            pass
+    
+    if data.get('lastPeriodStart'):
+        try:
+            last_date = datetime.strptime(data['lastPeriodStart'], '%Y-%m-%d')
+            data['lastDate'] = last_date.strftime('%Y年%m月%d日')
+        except:
+            pass
     
     for key, value in data.items():
         message = message.replace(f'{{{{{key}}}}}', str(value))
@@ -90,31 +97,84 @@ def render_message(template, data, remind_days):
     return message
 
 def send_message(channel, message):
-    url = channel['webhook']
+    channel_type = channel['type']
     
-    if channel['type'] == 'wecom':
+    if channel_type == 'wecom':
+        url = channel['webhook']
         payload = {
             'msgtype': 'text',
             'text': {'content': message}
         }
-    elif channel['type'] == 'dingding':
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        return response.json()
+        
+    elif channel_type == 'dingding':
+        url = channel['webhook']
         payload = {
             'msgtype': 'text',
             'text': {'content': message}
         }
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        return response.json()
+        
+    elif channel_type == 'wxtpl':
+        app_id = channel['appId']
+        app_secret = channel['appSecret']
+        template_id = channel['templateId']
+        open_id = channel['openId']
+        
+        token_url = f"https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={app_id}&secret={app_secret}"
+        token_response = requests.get(token_url)
+        token_data = token_response.json()
+        
+        if 'access_token' not in token_data:
+            raise Exception(f"获取 AccessToken 失败: {token_data.get('errmsg', '未知错误')}")
+        
+        access_token = token_data['access_token']
+        
+        send_url = f"https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={access_token}"
+        payload = {
+            'touser': open_id,
+            'template_id': template_id,
+            'data': {
+                'first': {'value': message, 'color': '#173177'}
+            }
+        }
+        
+        response = requests.post(send_url, json=payload)
+        result = response.json()
+        
+        if result.get('errcode') != 0:
+            raise Exception(f"发送模板消息失败: {result.get('errmsg', '未知错误')}")
+        
+        return result
+        
     else:
+        url = channel['webhook']
         payload = {'message': message}
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+def should_remind(data, remind_days):
+    if not data.get('nextPeriodPredicted'):
+        return False
     
-    response = requests.post(url, json=payload)
-    response.raise_for_status()
-    return response.json()
+    try:
+        next_date = datetime.strptime(data['nextPeriodPredicted'], '%Y-%m-%d')
+        days_left = (next_date - datetime.now()).days
+        return 0 <= days_left <= remind_days
+    except:
+        return False
 
 def run():
     print("Starting ZxyAlert...")
     
     try:
         config = fetch_gist_content(CONFIG_GIST_ID, GIST_OWNER)
-        print(f"Loaded config with {len(config.get('tasks', []))} tasks and {len(config.get('channels', []))} channels")
+        print(f"Loaded config: {len(config.get('tasks', []))} tasks, {len(config.get('channels', []))} channels")
         
         for task in config.get('tasks', []):
             if not task.get('enable', True):
@@ -135,15 +195,29 @@ def run():
             try:
                 data_source = task.get('dataSource', {})
                 if data_source.get('gistId') and data_source.get('fileName'):
+                    data_owner = data_source.get('owner') or GIST_OWNER
                     source_data = fetch_gist_content(
                         data_source['gistId'],
-                        GIST_OWNER,
+                        data_owner,
                         data_source['fileName']
                     )
                     
                     field_map = data_source.get('fieldMap', {})
                     mapped_data = map_fields(source_data, field_map)
-                    message = render_message(task.get('message', ''), mapped_data, task.get('remindDays', 3))
+                    
+                    remind_days = task.get('remindDays', 7)
+                    if not should_remind(mapped_data, remind_days):
+                        days_left = 0
+                        if mapped_data.get('nextPeriodPredicted'):
+                            try:
+                                next_date = datetime.strptime(mapped_data['nextPeriodPredicted'], '%Y-%m-%d')
+                                days_left = (next_date - datetime.now()).days
+                            except:
+                                pass
+                        print(f"Skipping: {days_left} days left (outside remind range)")
+                        continue
+                    
+                    message = render_message(task.get('message', ''), mapped_data)
                 else:
                     message = task.get('message', '提醒任务执行')
                 

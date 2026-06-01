@@ -112,3 +112,10 @@
 .channel-test-area textarea {
     margin-bottom: 12px;
 }
+
+.form-hint {
+    display: block;
+    margin-top: 4px;
+    color: #666;
+    font-size: 0.8rem;
+}

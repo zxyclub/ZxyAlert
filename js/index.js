@@ -141,7 +141,8 @@ function getChannelTypeText(type) {
     const types = {
         wecom: '企业微信',
         dingding: '钉钉',
-        webhook: 'Webhook'
+        webhook: 'Webhook',
+        wxtpl: '微信公众平台'
     };
     return types[type] || type;
 }
@@ -149,22 +150,27 @@ function getChannelTypeText(type) {
 function openAddTaskModal() {
     editingTaskId = null;
     document.getElementById('taskName').value = '';
-    document.getElementById('taskCron').value = '0 8 * * *';
-    document.getElementById('taskRemindDays').value = '3';
+    document.getElementById('taskCron').value = '0 9 * * *';
+    document.getElementById('taskRemindDays').value = '7';
     document.getElementById('taskChannel').value = '';
     document.getElementById('dataSourceGistId').value = '';
     document.getElementById('dataSourceFileName').value = '';
-    document.getElementById('taskMessage').value = '提醒：距离目标日期还有 {{daysLeft}} 天';
+    document.getElementById('taskMessage').value = '💡 距离例假还有 {{daysLeft}} 天！\n📅 预计日期：{{nextDate}}\n💪 保持好心情~';
     document.getElementById('taskEnabled').checked = true;
     document.getElementById('fieldMappingList').innerHTML = `
         <div class="field-mapping-item">
-            <input type="text" class="form-input" placeholder="映射字段名" value="lastPeriodDate">
-            <input type="text" class="form-input" placeholder="数据源字段" value="lastPeriodDate">
+            <input type="text" class="form-input" placeholder="映射字段名" value="nextPeriodPredicted">
+            <input type="text" class="form-input" placeholder="数据源字段" value="nextPeriodPredicted">
             <button class="remove-field" onclick="removeFieldMapping(this)">×</button>
         </div>
         <div class="field-mapping-item">
-            <input type="text" class="form-input" placeholder="映射字段名" value="cycleDays">
-            <input type="text" class="form-input" placeholder="数据源字段" value="cycleDays">
+            <input type="text" class="form-input" placeholder="映射字段名" value="lastPeriodStart">
+            <input type="text" class="form-input" placeholder="数据源字段" value="lastPeriodStart">
+            <button class="remove-field" onclick="removeFieldMapping(this)">×</button>
+        </div>
+        <div class="field-mapping-item">
+            <input type="text" class="form-input" placeholder="映射字段名" value="cycleLength">
+            <input type="text" class="form-input" placeholder="数据源字段" value="cycleLength">
             <button class="remove-field" onclick="removeFieldMapping(this)">×</button>
         </div>
     `;
@@ -328,12 +334,8 @@ async function fetchDataSource(dataSource) {
     }
     
     const owner = localStorage.getItem(STORAGE_KEY_OWNER);
-    const url = `https://gist.githubusercontent.com/${owner}/${dataSource.gistId}/raw/${dataSource.fileName}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error('获取数据源失败');
-    }
-    return await response.json();
+    const data = await fetchGistContent(dataSource.gistId, owner, dataSource.fileName);
+    return data;
 }
 
 function mapFields(data, fieldMap) {
@@ -412,14 +414,28 @@ async function sendMessage(channel, message) {
     return await response.json();
 }
 
+function updateChannelConfig() {
+    const type = document.getElementById('channelType').value;
+    document.getElementById('webhookGroup').style.display = type === 'wxtpl' ? 'none' : 'block';
+    document.getElementById('appIdGroup').style.display = type === 'wxtpl' ? 'block' : 'none';
+    document.getElementById('appSecretGroup').style.display = type === 'wxtpl' ? 'block' : 'none';
+    document.getElementById('templateIdGroup').style.display = type === 'wxtpl' ? 'block' : 'none';
+    document.getElementById('openIdGroup').style.display = type === 'wxtpl' ? 'block' : 'none';
+}
+
 function openAddChannelModal() {
     editingChannelId = null;
     document.getElementById('channelName').value = '';
     document.getElementById('channelType').value = 'wecom';
     document.getElementById('channelWebhook').value = '';
+    document.getElementById('channelAppId').value = '';
+    document.getElementById('channelAppSecret').value = '';
+    document.getElementById('channelTemplateId').value = '';
+    document.getElementById('channelOpenId').value = '';
     document.getElementById('channelEnabled').checked = true;
     document.getElementById('testMessage').value = '这是一条来自 ZxyAlert 的测试消息 🔔';
     document.getElementById('testResult').innerHTML = '';
+    updateChannelConfig();
     document.getElementById('channelModal').classList.add('show');
 }
 
@@ -430,10 +446,15 @@ function openEditChannelModal(channelId) {
 
     document.getElementById('channelName').value = channel.name;
     document.getElementById('channelType').value = channel.type;
-    document.getElementById('channelWebhook').value = channel.webhook;
+    document.getElementById('channelWebhook').value = channel.webhook || '';
+    document.getElementById('channelAppId').value = channel.appId || '';
+    document.getElementById('channelAppSecret').value = channel.appSecret || '';
+    document.getElementById('channelTemplateId').value = channel.templateId || '';
+    document.getElementById('channelOpenId').value = channel.openId || '';
     document.getElementById('channelEnabled').checked = channel.enable;
     document.getElementById('testMessage').value = '这是一条来自 ZxyAlert 的测试消息 🔔';
     document.getElementById('testResult').innerHTML = '';
+    updateChannelConfig();
     document.getElementById('channelModal').classList.add('show');
 }
 
@@ -443,21 +464,46 @@ function closeChannelModal() {
 }
 
 function saveChannel() {
+    const type = document.getElementById('channelType').value;
     const channelData = {
         id: editingChannelId || Date.now().toString(),
         name: document.getElementById('channelName').value.trim(),
-        type: document.getElementById('channelType').value,
-        webhook: document.getElementById('channelWebhook').value.trim(),
+        type: type,
         enable: document.getElementById('channelEnabled').checked
     };
 
-    if (!channelData.name) {
-        showToast('请输入渠道名称', 'error');
-        return;
+    if (type === 'wxtpl') {
+        channelData.appId = document.getElementById('channelAppId').value.trim();
+        channelData.appSecret = document.getElementById('channelAppSecret').value.trim();
+        channelData.templateId = document.getElementById('channelTemplateId').value.trim();
+        channelData.openId = document.getElementById('channelOpenId').value.trim();
+        
+        if (!channelData.appId) {
+            showToast('请输入 AppID', 'error');
+            return;
+        }
+        if (!channelData.appSecret) {
+            showToast('请输入 AppSecret', 'error');
+            return;
+        }
+        if (!channelData.templateId) {
+            showToast('请输入模板消息 ID', 'error');
+            return;
+        }
+        if (!channelData.openId) {
+            showToast('请输入用户 OpenID', 'error');
+            return;
+        }
+    } else {
+        channelData.webhook = document.getElementById('channelWebhook').value.trim();
+        if (!channelData.webhook) {
+            showToast('请输入 Webhook 地址', 'error');
+            return;
+        }
     }
 
-    if (!channelData.webhook) {
-        showToast('请输入 Webhook 地址', 'error');
+    if (!channelData.name) {
+        showToast('请输入渠道名称', 'error');
         return;
     }
 
@@ -492,41 +538,56 @@ function deleteChannel(channelId) {
 }
 
 async function testChannel() {
-    const webhook = document.getElementById('channelWebhook').value;
     const type = document.getElementById('channelType').value;
     const message = document.getElementById('testMessage').value;
-
-    if (!webhook) {
-        showToast('请先输入 Webhook 地址', 'error');
-        return;
-    }
 
     const resultDiv = document.getElementById('testResult');
     resultDiv.innerHTML = '<div class="test-result info">发送中...</div>';
 
     try {
-        let payload = {};
-        switch (type) {
-            case 'wecom':
-                payload = { msgtype: 'text', text: { content: message } };
-                break;
-            case 'dingding':
-                payload = { msgtype: 'text', text: { content: message } };
-                break;
-            default:
-                payload = { message };
-        }
+        if (type === 'wxtpl') {
+            const appId = document.getElementById('channelAppId').value.trim();
+            const appSecret = document.getElementById('channelAppSecret').value.trim();
+            const templateId = document.getElementById('channelTemplateId').value.trim();
+            const openId = document.getElementById('channelOpenId').value.trim();
 
-        const response = await fetch(webhook, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+            if (!appId || !appSecret || !templateId || !openId) {
+                resultDiv.innerHTML = '<div class="test-result error">✗ 请填写完整的微信配置</div>';
+                return;
+            }
 
-        if (response.ok) {
-            resultDiv.innerHTML = '<div class="test-result success">✓ 测试成功！</div>';
+            resultDiv.innerHTML = '<div class="test-result info">⚠️ 微信模板消息无法在浏览器中测试（CORS限制）。请保存配置后，通过 GitHub Actions 自动执行或手动运行脚本测试。</div>';
+            return;
         } else {
-            resultDiv.innerHTML = '<div class="test-result error">✗ 测试失败</div>';
+            const webhook = document.getElementById('channelWebhook').value.trim();
+            if (!webhook) {
+                resultDiv.innerHTML = '<div class="test-result error">✗ 请输入 Webhook 地址</div>';
+                return;
+            }
+
+            let payload = {};
+            switch (type) {
+                case 'wecom':
+                    payload = { msgtype: 'text', text: { content: message } };
+                    break;
+                case 'dingding':
+                    payload = { msgtype: 'text', text: { content: message } };
+                    break;
+                default:
+                    payload = { message };
+            }
+
+            const response = await fetch(webhook, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                resultDiv.innerHTML = '<div class="test-result success">✓ 测试成功！</div>';
+            } else {
+                resultDiv.innerHTML = '<div class="test-result error">✗ 测试失败</div>';
+            }
         }
     } catch (err) {
         resultDiv.innerHTML = `<div class="test-result error">✗ ${err.message}</div>`;
@@ -579,10 +640,43 @@ function parseCron(cron) {
     return result;
 }
 
+function fetchGistContent(gistId, owner, fileName = null) {
+    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+    const headers = {
+        'Accept': 'application/vnd.github+json'
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    return fetch(`https://api.github.com/gists/${gistId}`, {
+        headers: headers
+    }).then(response => {
+        if (!response.ok) {
+            if (response.status === 404) {
+                throw new Error('Gist 不存在或无权访问');
+            }
+            throw new Error('获取配置失败');
+        }
+        return response.json();
+    }).then(gist => {
+        if (fileName) {
+            if (gist.files && gist.files[fileName]) {
+                return JSON.parse(gist.files[fileName].content);
+            }
+            throw new Error(`文件中未找到: ${fileName}`);
+        }
+        const files = Object.keys(gist.files || {});
+        if (files.length > 0) {
+            return JSON.parse(gist.files[files[0]].content);
+        }
+        return {};
+    });
+}
+
 function syncConfig() {
     const gistId = localStorage.getItem(STORAGE_KEY_GIST_ID);
     const owner = localStorage.getItem(STORAGE_KEY_OWNER);
-    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
 
     if (!gistId || !owner) {
         showToast('请先配置 Gist ID 和用户名', 'error');
@@ -591,26 +685,52 @@ function syncConfig() {
 
     showToast('正在同步配置...', 'info');
 
-    fetch(`https://api.github.com/gists/${gistId}`, {
-        headers: {
-            'Authorization': token ? `Bearer ${token}` : undefined,
-            'Accept': 'application/vnd.github+json'
-        }
-    }).then(response => {
-        if (!response.ok) throw new Error('获取配置失败');
-        return response.json();
-    }).then(gist => {
-        const files = Object.keys(gist.files);
-        if (files.length === 0) throw new Error('Gist 中没有文件');
-        
-        const content = gist.files[files[0]].content;
-        config = JSON.parse(content);
+    fetchGistContent(gistId, owner)
+    .then(configData => {
+        config = configData;
         saveConfig();
         renderTasks();
         renderChannels();
         showToast('配置同步成功', 'success');
-    }).catch(err => {
+    })
+    .catch(err => {
         showToast('同步失败: ' + err.message, 'error');
+    });
+}
+
+function saveConfigToGist() {
+    const gistId = localStorage.getItem(STORAGE_KEY_GIST_ID);
+    const owner = localStorage.getItem(STORAGE_KEY_OWNER);
+    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+
+    if (!gistId || !owner || !token) {
+        showToast('保存到 Gist 需要配置 Token、Gist ID 和用户名', 'error');
+        return;
+    }
+
+    showToast('正在保存配置到 Gist...', 'info');
+
+    const fileName = 'zxyalert-config.json';
+    
+    fetch(`https://api.github.com/gists/${gistId}`, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/vnd.github+json'
+        },
+        body: JSON.stringify({
+            files: {
+                [fileName]: {
+                    content: JSON.stringify(config, null, 2)
+                }
+            }
+        })
+    }).then(response => {
+        if (!response.ok) throw new Error('保存配置失败');
+        showToast('配置已保存到 Gist', 'success');
+    }).catch(err => {
+        showToast('保存失败: ' + err.message, 'error');
     });
 }
 
