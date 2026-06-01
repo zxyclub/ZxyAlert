@@ -122,7 +122,7 @@ function renderChannels() {
                     <span class="channel-name">📡 ${channel.name}</span>
                     <span class="channel-type">${typeText}</span>
                 </div>
-                <div class="channel-desc">${channel.webhook.substring(0, 50)}${channel.webhook.length > 50 ? '...' : ''}</div>
+                <div class="channel-desc">${(channel.webhook || '').substring(0, 50)}${(channel.webhook || '').length > 50 ? '...' : ''}</div>
                 <div class="task-actions">
                     <button class="btn btn-secondary" onclick="openEditChannelModal('${channel.id}')">编辑</button>
                     <button class="btn btn-secondary" onclick="testChannelById('${channel.id}')">测试</button>
