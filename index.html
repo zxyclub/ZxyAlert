@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZxyAlert - 自动化提醒平台</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/index.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <div></div>
+                <div class="header-right">
+                    <img id="avatar" src="img/avatar1.jpg" alt="avatar" class="header-avatar">
+                </div>
+            </div>
+            <h1>🔔 ZxyAlert</h1>
+            <p class="subtitle">全可视化自动化提醒平台</p>
+        </header>
+
+        <div class="nav-tabs">
+            <button class="nav-tab active" data-section="tasks">📋 任务管理</button>
+            <button class="nav-tab" data-section="channels">📡 推送渠道</button>
+            <button class="nav-tab" data-section="settings">⚙️ 全局配置</button>
+        </div>
+
+        <div id="tasksSection" class="section active">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">📋 自动化任务</h2>
+                    <button class="btn btn-primary" onclick="openAddTaskModal()">+ 新建任务</button>
+                </div>
+                <div id="taskList" class="task-list">
+                    <div class="empty-state">
+                        <p>暂无任务</p>
+                        <button class="btn btn-primary" onclick="openAddTaskModal()">创建第一个任务</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="channelsSection" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">📡 推送渠道</h2>
+                    <button class="btn btn-primary" onclick="openAddChannelModal()">+ 新增渠道</button>
+                </div>
+                <div id="channelList" class="channel-list">
+                    <div class="empty-state">
+                        <p>暂无推送渠道</p>
+                        <button class="btn btn-primary" onclick="openAddChannelModal()">添加推送渠道</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="settingsSection" class="section">
+            <div class="card">
+                <h2 class="card-title">🔐 GitHub 配置</h2>
+                <div class="form-group">
+                    <label class="form-label">GitHub Token</label>
+                    <input type="password" id="githubToken" class="form-input token-input" placeholder="输入 GitHub Personal Access Token">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">配置 Gist ID</label>
+                    <input type="text" id="configGistId" class="form-input" placeholder="存储配置的 Gist ID">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">GitHub 用户名</label>
+                    <input type="text" id="githubOwner" class="form-input" placeholder="GitHub 用户名">
+                </div>
+                <button class="btn btn-primary" onclick="saveSettings()">保存配置</button>
+            </div>
+
+            <div class="card">
+                <h2 class="card-title">📄 配置预览</h2>
+                <div class="gist-config-preview">
+                    <h4>当前配置文件结构</h4>
+                    <pre id="configPreview"></pre>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2 class="card-title">🔄 数据同步</h2>
+                <button class="btn btn-secondary" onclick="syncConfig()">从 Gist 同步配置</button>
+                <button class="btn btn-secondary" onclick="exportConfig()">导出配置</button>
+                <button class="btn btn-danger" onclick="resetConfig()">重置配置</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="taskModal">
+        <div class="modal-content">
+            <h3>📋 新建/编辑任务</h3>
+            <div class="form-group">
+                <label class="form-label">任务名称</label>
+                <input type="text" id="taskName" class="form-input" placeholder="输入任务名称">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Cron 表达式</label>
+                <input type="text" id="taskCron" class="form-input" placeholder="例如: 0 8 * * * (每天早上8点)">
+                <div class="cron-help">格式: 分钟 小时 日期 月份 星期</div>
+                <div id="cronPreview" class="cron-preview"></div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">提醒天数</label>
+                <input type="number" id="taskRemindDays" class="form-input" placeholder="提前几天提醒" value="3">
+            </div>
+            <div class="form-group">
+                <label class="form-label">推送渠道</label>
+                <select id="taskChannel" class="form-select">
+                    <option value="">请选择渠道</option>
+                </select>
+            </div>
+            <div class="data-source-config">
+                <h4>📊 数据源配置</h4>
+                <div class="form-group">
+                    <label class="form-label">Gist ID</label>
+                    <input type="text" id="dataSourceGistId" class="form-input" placeholder="数据源所在的 Gist ID">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">文件名</label>
+                    <input type="text" id="dataSourceFileName" class="form-input" placeholder="数据源文件名，如 zxycycle-data.json">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">字段映射</label>
+                <div id="fieldMappingList"></div>
+                <button class="add-field" onclick="addFieldMapping()">+ 添加字段映射</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">提醒文案</label>
+                <textarea id="taskMessage" class="form-textarea" placeholder="支持变量替换，如 {{lastPeriodDate}}、{{cycleDays}}"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">启用任务</label>
+                <label class="switch">
+                    <input type="checkbox" id="taskEnabled" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="modal-btns">
+                <button class="btn btn-secondary" onclick="closeTaskModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveTask()">保存任务</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="channelModal">
+        <div class="modal-content">
+            <h3>📡 新建/编辑推送渠道</h3>
+            <div class="form-group">
+                <label class="form-label">渠道名称</label>
+                <input type="text" id="channelName" class="form-input" placeholder="输入渠道名称">
+            </div>
+            <div class="form-group">
+                <label class="form-label">渠道类型</label>
+                <select id="channelType" class="form-select">
+                    <option value="wecom">企业微信机器人</option>
+                    <option value="dingding">钉钉机器人</option>
+                    <option value="webhook">通用 Webhook</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Webhook 地址</label>
+                <input type="text" id="channelWebhook" class="form-input" placeholder="输入机器人 Webhook 地址">
+            </div>
+            <div class="form-group">
+                <label class="form-label">启用渠道</label>
+                <label class="switch">
+                    <input type="checkbox" id="channelEnabled" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="channel-test-area">
+                <textarea id="testMessage" class="form-textarea" placeholder="输入测试消息" rows="3">这是一条来自 ZxyAlert 的测试消息 🔔</textarea>
+                <button class="btn btn-secondary" onclick="testChannel()">测试推送</button>
+                <div id="testResult"></div>
+            </div>
+            <div class="modal-btns">
+                <button class="btn btn-secondary" onclick="closeChannelModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveChannel()">保存渠道</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="js/index.js"></script>
+</body>
+</html>
