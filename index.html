@@ -103,7 +103,7 @@
             <div class="form-group">
                 <label class="form-label">Cron 表达式</label>
                 <input type="text" id="taskCron" class="form-input" placeholder="例如: 0 8 * * * (每天早上8点)">
-                <div class="cron-help">格式: 分钟 小时 日期 月份 星期</div>
+                <div class="cron-help">格式: 分 时 日 月 周（, - / *）</div>
                 <div id="cronPreview" class="cron-preview"></div>
             </div>
             <div class="form-group">
@@ -129,6 +129,9 @@
             </div>
             <div class="form-group">
                 <label class="form-label">字段映射</label>
+                <div style="font-size: 0.85rem; color: #666; margin-bottom: 8px;">
+                    左边：消息模板中使用的变量名 | 右边：数据源 JSON 中的字段名
+                </div>
                 <div id="fieldMappingList"></div>
                 <button class="add-field" onclick="addFieldMapping()">+ 添加字段映射</button>
             </div>
@@ -196,6 +199,17 @@
             <div class="modal-btns">
                 <button class="btn btn-secondary" onclick="closeChannelModal()">取消</button>
                 <button class="btn btn-primary" onclick="saveChannel()">保存渠道</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal-content">
+            <h3 id="confirmModalTitle">确认</h3>
+            <p id="confirmModalMessage" style="color: #888; margin-bottom: 20px; line-height: 1.6;"></p>
+            <div class="modal-btns">
+                <button class="btn btn-secondary" onclick="closeConfirmModal()">取消</button>
+                <button class="btn btn-primary" id="confirmModalBtn" onclick="handleConfirm()">确定</button>
             </div>
         </div>
     </div>

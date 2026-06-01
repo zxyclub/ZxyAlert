@@ -10,6 +10,7 @@ let config = {
 
 let editingTaskId = null;
 let editingChannelId = null;
+let confirmCallback = null;
 
 function showToast(message, type = 'info') {
     const toast = document.getElementById('toast');
@@ -91,7 +92,7 @@ function renderTasks() {
                 </div>
                 <div class="task-actions">
                     <button class="btn btn-secondary" onclick="openEditTaskModal('${task.id}')">编辑</button>
-                    <button class="btn btn-secondary" onclick="triggerTask('${task.id}')">手动触发</button>
+                    <button class="btn btn-secondary" onclick="triggerTask('${task.id}')">🧪 手动触发</button>
                     <button class="btn btn-danger" onclick="deleteTask('${task.id}')">删除</button>
                 </div>
             </div>
@@ -125,7 +126,7 @@ function renderChannels() {
                 <div class="channel-desc">${(channel.webhook || channel.type === 'wxtpl' ? '微信公众号' : '').substring(0, 50)}${(channel.webhook || '').length > 50 ? '...' : ''}</div>
                 <div class="task-actions">
                     <button class="btn btn-secondary" onclick="openEditChannelModal('${channel.id}')">编辑</button>
-                    <button class="btn btn-success" onclick="quickTestChannel('${channel.id}')">🧪 测试</button>
+                    <button class="btn btn-secondary" onclick="quickTestChannel('${channel.id}')">🧪 测试</button>
                     <button class="btn btn-danger" onclick="deleteChannel('${channel.id}')">删除</button>
                 </div>
             </div>
@@ -154,43 +155,45 @@ async function quickTestChannel(channelId) {
         return;
     }
 
-    showToast('正在测试...', 'info');
+    openConfirmModal('确认测试', `确定要测试推送渠道 "${channel.name}" 吗？`, async () => {
+        showToast('正在测试...', 'info');
 
-    try {
-        if (channel.type === 'wxtpl') {
-            // 微信公众号：触发 GitHub Actions（测试模式）
-            await triggerGitHubWorkflow(true);
-        } else {
-            // 其他渠道：直接发送测试消息
-            const message = '这是一条来自 ZxyAlert 的测试消息 🔔';
-            let payload = {};
-            
-            switch (channel.type) {
-                case 'wecom':
-                    payload = { msgtype: 'text', text: { content: message } };
-                    break;
-                case 'dingding':
-                    payload = { msgtype: 'text', text: { content: message } };
-                    break;
-                default:
-                    payload = { message };
+        try {
+            if (channel.type === 'wxtpl') {
+                // 微信公众号：触发 GitHub Actions（测试模式）
+                await triggerGitHubWorkflow(true);
+            } else {
+                // 其他渠道：直接发送测试消息
+                const message = '这是一条来自 ZxyAlert 的测试消息 🔔';
+                let payload = {};
+                
+                switch (channel.type) {
+                    case 'wecom':
+                        payload = { msgtype: 'text', text: { content: message } };
+                        break;
+                    case 'dingding':
+                        payload = { msgtype: 'text', text: { content: message } };
+                        break;
+                    default:
+                        payload = { message };
+                }
+
+                const response = await fetch(channel.webhook, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error('发送失败');
+                }
+                
+                showToast('✅ 测试成功！', 'success');
             }
-
-            const response = await fetch(channel.webhook, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                throw new Error('发送失败');
-            }
-            
-            showToast('✅ 测试成功！', 'success');
+        } catch (err) {
+            showToast('测试失败: ' + err.message, 'error');
         }
-    } catch (err) {
-        showToast('测试失败: ' + err.message, 'error');
-    }
+    });
 }
 
 function openAddTaskModal() {
@@ -201,22 +204,12 @@ function openAddTaskModal() {
     document.getElementById('taskChannel').value = '';
     document.getElementById('dataSourceGistId').value = '';
     document.getElementById('dataSourceFileName').value = '';
-    document.getElementById('taskMessage').value = '💡 距离例假还有 {{daysLeft}} 天！\n📅 预计日期：{{nextDate}}\n💪 保持好心情~';
+    document.getElementById('taskMessage').value = '💡 提醒：距离目标日期还有 {{daysLeft}} 天！\n📅 预计日期：{{nextDate}}';
     document.getElementById('taskEnabled').checked = true;
     document.getElementById('fieldMappingList').innerHTML = `
         <div class="field-mapping-item">
-            <input type="text" class="form-input" placeholder="映射字段名" value="nextPeriodPredicted">
-            <input type="text" class="form-input" placeholder="数据源字段" value="nextPeriodPredicted">
-            <button class="remove-field" onclick="removeFieldMapping(this)">×</button>
-        </div>
-        <div class="field-mapping-item">
-            <input type="text" class="form-input" placeholder="映射字段名" value="lastPeriodStart">
-            <input type="text" class="form-input" placeholder="数据源字段" value="lastPeriodStart">
-            <button class="remove-field" onclick="removeFieldMapping(this)">×</button>
-        </div>
-        <div class="field-mapping-item">
-            <input type="text" class="form-input" placeholder="映射字段名" value="cycleLength">
-            <input type="text" class="form-input" placeholder="数据源字段" value="cycleLength">
+            <input type="text" class="form-input" placeholder="映射字段名" value="targetDate">
+            <input type="text" class="form-input" placeholder="数据源字段" value="targetDate">
             <button class="remove-field" onclick="removeFieldMapping(this)">×</button>
         </div>
     `;
@@ -361,25 +354,27 @@ function triggerTask(taskId) {
         return;
     }
 
-    showToast('正在触发任务...', 'info');
-    
-    if (channel.type === 'wxtpl') {
-        // 微信公众号：触发 GitHub Actions（任务模式）
-        triggerGitHubWorkflow(false).catch(err => {
-            showToast('触发失败: ' + err.message, 'error');
-        });
-    } else {
-        // 其他渠道：直接发送消息
-        fetchDataSource(task.dataSource).then(data => {
-            const mappedData = mapFields(data, task.dataSource.fieldMap);
-            const message = renderMessage(task.message, mappedData, task.remindDays, channel.type);
-            return sendMessage(channel, message);
-        }).then(() => {
-            showToast('任务触发成功', 'success');
-        }).catch(err => {
-            showToast('触发失败: ' + err.message, 'error');
-        });
-    }
+    openConfirmModal('确认触发', `确定要手动触发任务 "${task.taskName}" 吗？`, () => {
+        showToast('正在触发任务...', 'info');
+        
+        if (channel.type === 'wxtpl') {
+            // 微信公众号：触发 GitHub Actions（任务模式）
+            triggerGitHubWorkflow(false).catch(err => {
+                showToast('触发失败: ' + err.message, 'error');
+            });
+        } else {
+            // 其他渠道：直接发送消息
+            fetchDataSource(task.dataSource).then(data => {
+                const mappedData = mapFields(data, task.dataSource.fieldMap);
+                const message = renderMessage(task.message, mappedData, task.remindDays, channel.type);
+                return sendMessage(channel, message);
+            }).then(() => {
+                showToast('任务触发成功', 'success');
+            }).catch(err => {
+                showToast('触发失败: ' + err.message, 'error');
+            });
+        }
+    });
 }
 
 async function fetchDataSource(dataSource) {
@@ -626,6 +621,25 @@ function openEditChannelModal(channelId) {
 function closeChannelModal() {
     document.getElementById('channelModal').classList.remove('show');
     editingChannelId = null;
+}
+
+function openConfirmModal(title, message, callback) {
+    document.getElementById('confirmModalTitle').textContent = title;
+    document.getElementById('confirmModalMessage').textContent = message;
+    confirmCallback = callback;
+    document.getElementById('confirmModal').classList.add('show');
+}
+
+function closeConfirmModal() {
+    document.getElementById('confirmModal').classList.remove('show');
+    confirmCallback = null;
+}
+
+function handleConfirm() {
+    if (confirmCallback) {
+        confirmCallback();
+        closeConfirmModal();
+    }
 }
 
 function saveChannel() {
@@ -893,12 +907,4 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('taskCron').addEventListener('input', updateCronPreview);
-
-    document.getElementById('taskModal').addEventListener('click', (e) => {
-        if (e.target === document.getElementById('taskModal')) closeTaskModal();
-    });
-
-    document.getElementById('channelModal').addEventListener('click', (e) => {
-        if (e.target === document.getElementById('channelModal')) closeChannelModal();
-    });
 });
