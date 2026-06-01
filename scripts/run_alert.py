@@ -194,12 +194,15 @@ def run():
             
             try:
                 data_source = task.get('dataSource', {})
-                if data_source.get('gistId') and data_source.get('fileName'):
+                gist_id = data_source.get('gistId', '').strip()
+                file_name = data_source.get('fileName', '').strip()
+                
+                if gist_id and file_name:
                     data_owner = data_source.get('owner') or GIST_OWNER
                     source_data = fetch_gist_content(
-                        data_source['gistId'],
+                        gist_id,
                         data_owner,
-                        data_source['fileName']
+                        file_name
                     )
                     
                     field_map = data_source.get('fieldMap', {})
