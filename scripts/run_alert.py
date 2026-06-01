@@ -194,97 +194,110 @@ def run():
         config = fetch_gist_content(CONFIG_GIST_ID, GIST_OWNER)
         print(f"Loaded config: {len(config.get('tasks', []))} tasks, {len(config.get('channels', []))} channels")
         
-        for task in config.get('tasks', []):
-            if not task.get('enable', True):
-                print(f"Skipping disabled task: {task['taskName']}")
-                continue
-            
-            if not is_cron_match(task['cron']):
-                print(f"Cron not matched for task: {task['taskName']}")
-                continue
-            
-            channel = next((c for c in config['channels'] if c['id'] == task['channelId']), None)
-            if not channel or not channel.get('enable', True):
-                print(f"Channel not found or disabled for task: {task['taskName']}")
-                continue
-            
-            print(f"Executing task: {task['taskName']}")
-            
-            try:
-                data_source = task.get('dataSource', {})
-                gist_id = data_source.get('gistId', '').strip()
-                file_name = data_source.get('fileName', '').strip()
+        # 检查是否是测试模式
+        test_mode = os.environ.get('TEST_MODE') == 'true'
+        is_manual_trigger = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+        
+        if test_mode:
+            print("Running in TEST MODE - will send test message to first available wxtpl channel")
+            # 测试模式：找到第一个启用的微信公众号渠道发送测试消息
+            for channel in config.get('channels', []):
+                if channel.get('type') == 'wxtpl' and channel.get('enable', True):
+                    print(f"Sending test message to channel: {channel['name']}")
+                    test_message = {
+                        'first': '🧪 这是一条测试消息',
+                        'nextDate': '-',
+                        'daysLeft': '-'
+                    }
+                    send_message(channel, test_message)
+                    print("Test message sent successfully!")
+                    break
+            else:
+                print("No enabled wxtpl channel found for test mode")
+        else:
+            # 正常模式：执行任务
+            for task in config.get('tasks', []):
+                if not task.get('enable', True):
+                    print(f"Skipping disabled task: {task['taskName']}")
+                    continue
                 
-                if gist_id and file_name:
-                    data_owner = data_source.get('owner') or GIST_OWNER
-                    source_data = fetch_gist_content(
-                        gist_id,
-                        data_owner,
-                        file_name
-                    )
+                if not is_cron_match(task['cron']) and not is_manual_trigger:
+                    print(f"Cron not matched for task: {task['taskName']}")
+                    continue
+                
+                channel = next((c for c in config['channels'] if c['id'] == task['channelId']), None)
+                if not channel or not channel.get('enable', True):
+                    print(f"Channel not found or disabled for task: {task['taskName']}")
+                    continue
+                
+                print(f"Executing task: {task['taskName']}")
+                
+                try:
+                    data_source = task.get('dataSource', {})
+                    gist_id = data_source.get('gistId', '').strip()
+                    file_name = data_source.get('fileName', '').strip()
                     
-                    field_map = data_source.get('fieldMap', {})
-                    mapped_data = map_fields(source_data, field_map)
-                    
-                    remind_days = task.get('remindDays', 7)
-                    if not should_remind(mapped_data, remind_days):
-                        days_left = 0
-                        if mapped_data.get('nextPeriodPredicted'):
-                            try:
-                                next_date = datetime.strptime(mapped_data['nextPeriodPredicted'], '%Y-%m-%d')
-                                days_left = (next_date - datetime.now()).days
-                            except:
-                                pass
-                        print(f"Skipping: {days_left} days left (outside remind range)")
+                    if gist_id and file_name:
+                        data_owner = data_source.get('owner') or GIST_OWNER
+                        source_data = fetch_gist_content(
+                            gist_id,
+                            data_owner,
+                            file_name
+                        )
                         
-                        # 临时测试模式：提醒检查失败时也发送简单消息
-                        print(f"  [Debug] 测试模式：发送简单测试消息")
-                        if channel['type'] == 'wxtpl':
-                            message = {
-                                'first': '🔔 测试消息：GitHub Actions 运行成功！',
-                                'nextDate': '-',
-                                'daysLeft': '-'
-                            }
-                        else:
-                            message = "🔔 测试消息：GitHub Actions 运行成功！提醒条件暂未满足，但流程正常"
-                    else:
-                        if channel['type'] == 'wxtpl':
-                            # 为微信模板消息构建专门的字典格式
-                            message = {}
-                            today = datetime.now()
-                            
+                        field_map = data_source.get('fieldMap', {})
+                        mapped_data = map_fields(source_data, field_map)
+                        
+                        remind_days = task.get('remindDays', 7)
+                        
+                        if not should_remind(mapped_data, remind_days) and not is_manual_trigger:
+                            days_left = 0
                             if mapped_data.get('nextPeriodPredicted'):
                                 try:
                                     next_date = datetime.strptime(mapped_data['nextPeriodPredicted'], '%Y-%m-%d')
-                                    days_left = (next_date - today).days
-                                    message['daysLeft'] = str(days_left)
-                                    message['nextDate'] = next_date.strftime('%Y年%m月%d日')
-                                    message['first'] = f"距离例假还有 {days_left} 天！"
+                                    days_left = (next_date - datetime.now()).days
                                 except:
+                                    pass
+                            print(f"Skipping: {days_left} days left (outside remind range)")
+                        else:
+                            # 无论是定时触发还是手动触发，都发送正常消息
+                            if channel['type'] == 'wxtpl':
+                                # 为微信模板消息构建专门的字典格式
+                                message = {}
+                                today = datetime.now()
+                                
+                                if mapped_data.get('nextPeriodPredicted'):
+                                    try:
+                                        next_date = datetime.strptime(mapped_data['nextPeriodPredicted'], '%Y-%m-%d')
+                                        days_left = (next_date - today).days
+                                        message['daysLeft'] = str(days_left)
+                                        message['nextDate'] = next_date.strftime('%Y年%m月%d日')
+                                        message['first'] = f"距离例假还有 {days_left} 天！"
+                                    except:
+                                        message['first'] = '💡'
+                                        message['nextDate'] = '-'
+                                        message['daysLeft'] = '-'
+                                else:
                                     message['first'] = '💡'
                                     message['nextDate'] = '-'
                                     message['daysLeft'] = '-'
                             else:
-                                message['first'] = '💡'
-                                message['nextDate'] = '-'
-                                message['daysLeft'] = '-'
-                        else:
-                            message = render_message(task.get('message', ''), mapped_data)
-                else:
-                    if channel['type'] == 'wxtpl':
-                        message = {
-                            'first': task.get('message', '提醒任务执行'),
-                            'nextDate': '-',
-                            'daysLeft': '-'
-                        }
+                                message = render_message(task.get('message', ''), mapped_data)
                     else:
-                        message = task.get('message', '提醒任务执行')
-                
-                send_message(channel, message)
-                print(f"Successfully sent message for task: {task['taskName']}")
-                
-            except Exception as e:
-                print(f"Error executing task {task['taskName']}: {e}")
+                        if channel['type'] == 'wxtpl':
+                            message = {
+                                'first': task.get('message', '提醒任务执行'),
+                                'nextDate': '-',
+                                'daysLeft': '-'
+                            }
+                        else:
+                            message = task.get('message', '提醒任务执行')
+                    
+                    send_message(channel, message)
+                    print(f"Successfully sent message for task: {task['taskName']}")
+                    
+                except Exception as e:
+                    print(f"Error executing task {task['taskName']}: {e}")
         
         print("ZxyAlert completed")
         

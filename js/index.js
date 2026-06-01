@@ -122,10 +122,10 @@ function renderChannels() {
                     <span class="channel-name">📡 ${channel.name}</span>
                     <span class="channel-type">${typeText}</span>
                 </div>
-                <div class="channel-desc">${(channel.webhook || '').substring(0, 50)}${(channel.webhook || '').length > 50 ? '...' : ''}</div>
+                <div class="channel-desc">${(channel.webhook || channel.type === 'wxtpl' ? '微信公众号' : '').substring(0, 50)}${(channel.webhook || '').length > 50 ? '...' : ''}</div>
                 <div class="task-actions">
                     <button class="btn btn-secondary" onclick="openEditChannelModal('${channel.id}')">编辑</button>
-                    <button class="btn btn-secondary" onclick="testChannelById('${channel.id}')">测试</button>
+                    <button class="btn btn-success" onclick="quickTestChannel('${channel.id}')">🧪 测试</button>
                     <button class="btn btn-danger" onclick="deleteChannel('${channel.id}')">删除</button>
                 </div>
             </div>
@@ -145,6 +145,52 @@ function getChannelTypeText(type) {
         wxtpl: '微信公众平台'
     };
     return types[type] || type;
+}
+
+async function quickTestChannel(channelId) {
+    const channel = config.channels.find(c => c.id === channelId);
+    if (!channel) {
+        showToast('渠道不存在', 'error');
+        return;
+    }
+
+    showToast('正在测试...', 'info');
+
+    try {
+        if (channel.type === 'wxtpl') {
+            // 微信公众号：触发 GitHub Actions（测试模式）
+            await triggerGitHubWorkflow(true);
+        } else {
+            // 其他渠道：直接发送测试消息
+            const message = '这是一条来自 ZxyAlert 的测试消息 🔔';
+            let payload = {};
+            
+            switch (channel.type) {
+                case 'wecom':
+                    payload = { msgtype: 'text', text: { content: message } };
+                    break;
+                case 'dingding':
+                    payload = { msgtype: 'text', text: { content: message } };
+                    break;
+                default:
+                    payload = { message };
+            }
+
+            const response = await fetch(channel.webhook, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error('发送失败');
+            }
+            
+            showToast('✅ 测试成功！', 'success');
+        }
+    } catch (err) {
+        showToast('测试失败: ' + err.message, 'error');
+    }
 }
 
 function openAddTaskModal() {
@@ -317,15 +363,23 @@ function triggerTask(taskId) {
 
     showToast('正在触发任务...', 'info');
     
-    fetchDataSource(task.dataSource).then(data => {
-        const mappedData = mapFields(data, task.dataSource.fieldMap);
-        const message = renderMessage(task.message, mappedData, task.remindDays);
-        return sendMessage(channel, message);
-    }).then(() => {
-        showToast('任务触发成功', 'success');
-    }).catch(err => {
-        showToast('触发失败: ' + err.message, 'error');
-    });
+    if (channel.type === 'wxtpl') {
+        // 微信公众号：触发 GitHub Actions（任务模式）
+        triggerGitHubWorkflow(false).catch(err => {
+            showToast('触发失败: ' + err.message, 'error');
+        });
+    } else {
+        // 其他渠道：直接发送消息
+        fetchDataSource(task.dataSource).then(data => {
+            const mappedData = mapFields(data, task.dataSource.fieldMap);
+            const message = renderMessage(task.message, mappedData, task.remindDays, channel.type);
+            return sendMessage(channel, message);
+        }).then(() => {
+            showToast('任务触发成功', 'success');
+        }).catch(err => {
+            showToast('触发失败: ' + err.message, 'error');
+        });
+    }
 }
 
 async function fetchDataSource(dataSource) {
@@ -351,9 +405,36 @@ function getNestedValue(obj, path) {
     return path.split('.').reduce((o, key) => (o && o[key] !== undefined) ? o[key] : null, obj);
 }
 
-function renderMessage(template, data, remindDays) {
-    let message = template;
+function renderMessage(template, data, remindDays, channelType) {
     const today = new Date();
+    
+    // 对于微信公众号模板消息，返回结构化数据而不是渲染后的字符串
+    if (channelType === 'wxtpl') {
+        const messageData = {};
+        
+        if (data.nextPeriodPredicted) {
+            try {
+                const nextDate = new Date(data.nextPeriodPredicted);
+                const daysLeft = Math.ceil((nextDate - today) / (1000 * 60 * 60 * 24));
+                messageData.daysLeft = String(daysLeft);
+                messageData.nextDate = nextDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '年').replace(/(\d{4}年\d{2})/, '$1月').replace(/(\d{4}年\d{2}月\d{2})/, '$1日');
+                messageData.first = `距离例假还有 ${daysLeft} 天！`;
+            } catch (e) {
+                messageData.first = '💡';
+                messageData.nextDate = '-';
+                messageData.daysLeft = '-';
+            }
+        } else {
+            messageData.first = '💡';
+            messageData.nextDate = '-';
+            messageData.daysLeft = '-';
+        }
+        
+        return messageData;
+    }
+    
+    // 对于其他渠道，返回渲染后的字符串
+    let message = template;
     
     if (data.lastPeriodDate && data.cycleDays) {
         const lastDate = new Date(data.lastPeriodDate);
@@ -374,7 +455,8 @@ function renderMessage(template, data, remindDays) {
 
 async function sendMessage(channel, message) {
     if (channel.type === 'wxtpl') {
-        throw new Error('微信公众号模板消息需要在 GitHub Actions 中发送，请在网页端保存配置后触发 workflow');
+        // 调用 GitHub API 触发 workflow
+        return triggerGitHubWorkflow();
     }
 
     if (!channel.webhook) {
@@ -418,6 +500,63 @@ async function sendMessage(channel, message) {
     return await response.json();
 }
 
+async function triggerGitHubWorkflow(isTestMode = false) {
+    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+    const owner = localStorage.getItem(STORAGE_KEY_OWNER);
+    
+    if (!token) {
+        throw new Error('请先在配置页面设置 GitHub Token');
+    }
+    if (!owner) {
+        throw new Error('请先在配置页面设置 GitHub 用户名');
+    }
+
+    // 从 GitHub Pages URL 中获取仓库名
+    let repo = 'ZxyAlert'; // 默认值
+    try {
+        // 尝试从当前页面 URL 推断仓库名
+        const pathParts = window.location.pathname.split('/').filter(p => p);
+        if (pathParts.length >= 1) {
+            // GitHub Pages URL 格式: /repo-name/ 或 /repo-name/index.html
+            // 找到第一个可能是仓库名的部分（排除 index.html 等文件名）
+            for (const part of pathParts) {
+                if (!part.includes('.') && part.length > 0) {
+                    repo = part;
+                    break;
+                }
+            }
+        }
+    } catch (e) {
+        // 使用默认值
+    }
+
+    const modeText = isTestMode ? '测试模式' : '任务模式';
+    showToast(`正在触发 GitHub Actions (${modeText})...`, 'info');
+
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/run.yml/dispatches`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/vnd.github+json'
+        },
+        body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+                test_mode: isTestMode ? 'true' : 'false'
+            }
+        })
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`触发失败: ${response.status} - 请确认仓库名是 ${repo}，分支是 main，且 Token 有 repo 权限\n\n错误详情: ${errorText}`);
+    }
+
+    showToast(`✅ GitHub Actions 已触发 (${modeText})！请稍等片刻查看微信消息`, 'success');
+    return Promise.resolve();
+}
+
 function updateChannelConfig() {
     const type = document.getElementById('channelType').value;
     document.getElementById('webhookGroup').style.display = type === 'wxtpl' ? 'none' : 'block';
@@ -429,6 +568,7 @@ function updateChannelConfig() {
 
 function openAddChannelModal() {
     editingChannelId = null;
+    document.querySelector('#channelModal h3').textContent = '📡 新建推送渠道';
     document.getElementById('channelName').value = '';
     document.getElementById('channelType').value = 'wecom';
     document.getElementById('channelWebhook').value = '';
@@ -437,8 +577,18 @@ function openAddChannelModal() {
     document.getElementById('channelTemplateId').value = '';
     document.getElementById('channelOpenId').value = '';
     document.getElementById('channelEnabled').checked = true;
-    document.getElementById('testMessage').value = '这是一条来自 ZxyAlert 的测试消息 🔔';
-    document.getElementById('testResult').innerHTML = '';
+    
+    // 新建模式：启用所有输入
+    document.getElementById('channelName').disabled = false;
+    document.getElementById('channelType').disabled = false;
+    document.getElementById('channelWebhook').disabled = false;
+    document.getElementById('channelAppId').disabled = false;
+    document.getElementById('channelAppSecret').disabled = false;
+    document.getElementById('channelTemplateId').disabled = false;
+    document.getElementById('channelOpenId').disabled = false;
+    document.getElementById('channelEnabled').disabled = false;
+    document.querySelector('#channelModal .modal-btns').style.display = '';
+    
     updateChannelConfig();
     document.getElementById('channelModal').classList.add('show');
 }
@@ -448,6 +598,7 @@ function openEditChannelModal(channelId) {
     const channel = config.channels.find(c => c.id === channelId);
     if (!channel) return;
 
+    document.querySelector('#channelModal h3').textContent = '📡 编辑推送渠道';
     document.getElementById('channelName').value = channel.name;
     document.getElementById('channelType').value = channel.type;
     document.getElementById('channelWebhook').value = channel.webhook || '';
@@ -456,8 +607,18 @@ function openEditChannelModal(channelId) {
     document.getElementById('channelTemplateId').value = channel.templateId || '';
     document.getElementById('channelOpenId').value = channel.openId || '';
     document.getElementById('channelEnabled').checked = channel.enable;
-    document.getElementById('testMessage').value = '这是一条来自 ZxyAlert 的测试消息 🔔';
-    document.getElementById('testResult').innerHTML = '';
+    
+    // 编辑模式：启用所有输入
+    document.getElementById('channelName').disabled = false;
+    document.getElementById('channelType').disabled = false;
+    document.getElementById('channelWebhook').disabled = false;
+    document.getElementById('channelAppId').disabled = false;
+    document.getElementById('channelAppSecret').disabled = false;
+    document.getElementById('channelTemplateId').disabled = false;
+    document.getElementById('channelOpenId').disabled = false;
+    document.getElementById('channelEnabled').disabled = false;
+    document.querySelector('#channelModal .modal-btns').style.display = '';
+    
     updateChannelConfig();
     document.getElementById('channelModal').classList.add('show');
 }
@@ -541,74 +702,7 @@ function deleteChannel(channelId) {
     }
 }
 
-async function testChannel() {
-    const type = document.getElementById('channelType').value;
-    const message = document.getElementById('testMessage').value;
 
-    const resultDiv = document.getElementById('testResult');
-    resultDiv.innerHTML = '<div class="test-result info">发送中...</div>';
-
-    try {
-        if (type === 'wxtpl') {
-            const appId = document.getElementById('channelAppId').value.trim();
-            const appSecret = document.getElementById('channelAppSecret').value.trim();
-            const templateId = document.getElementById('channelTemplateId').value.trim();
-            const openId = document.getElementById('channelOpenId').value.trim();
-
-            if (!appId || !appSecret || !templateId || !openId) {
-                resultDiv.innerHTML = '<div class="test-result error">✗ 请填写完整的微信配置</div>';
-                return;
-            }
-
-            resultDiv.innerHTML = '<div class="test-result info">⚠️ 微信模板消息无法在浏览器中测试（CORS限制）。请保存配置后，通过 GitHub Actions 自动执行或手动运行脚本测试。</div>';
-            return;
-        } else {
-            const webhook = document.getElementById('channelWebhook').value.trim();
-            if (!webhook) {
-                resultDiv.innerHTML = '<div class="test-result error">✗ 请输入 Webhook 地址</div>';
-                return;
-            }
-
-            let payload = {};
-            switch (type) {
-                case 'wecom':
-                    payload = { msgtype: 'text', text: { content: message } };
-                    break;
-                case 'dingding':
-                    payload = { msgtype: 'text', text: { content: message } };
-                    break;
-                default:
-                    payload = { message };
-            }
-
-            const response = await fetch(webhook, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (response.ok) {
-                resultDiv.innerHTML = '<div class="test-result success">✓ 测试成功！</div>';
-            } else {
-                resultDiv.innerHTML = '<div class="test-result error">✗ 测试失败</div>';
-            }
-        }
-    } catch (err) {
-        resultDiv.innerHTML = `<div class="test-result error">✗ ${err.message}</div>`;
-    }
-}
-
-function testChannelById(channelId) {
-    const channel = config.channels.find(c => c.id === channelId);
-    if (!channel) return;
-
-    document.getElementById('channelName').value = channel.name;
-    document.getElementById('channelType').value = channel.type;
-    document.getElementById('channelWebhook').value = channel.webhook;
-    document.getElementById('channelEnabled').checked = channel.enable;
-    document.getElementById('testMessage').value = '这是一条来自 ZxyAlert 的测试消息 🔔';
-    document.getElementById('channelModal').classList.add('show');
-}
 
 function updateCronPreview() {
     const cron = document.getElementById('taskCron').value;

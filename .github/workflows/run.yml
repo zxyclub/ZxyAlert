@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '*/1 * * * *'
   workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Test mode - send simple test message'
+        required: false
+        default: 'false'
 
 jobs:
   run:
@@ -27,3 +32,4 @@ jobs:
           MY_TOKEN: ${{ secrets.MY_TOKEN }}
           MY_CONFIG_GIST_ID: ${{ secrets.MY_CONFIG_GIST_ID }}
           MY_GIST_OWNER: ${{ secrets.MY_GIST_OWNER }}
+          TEST_MODE: ${{ inputs.test_mode || 'false' }}
