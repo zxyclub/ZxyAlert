@@ -18,21 +18,6 @@
     border: 2px solid rgba(0, 217, 255, 0.5);
 }
 
-.admin-link {
-    color: #888;
-    text-decoration: none;
-    font-size: 0.9rem;
-    padding: 6px 12px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
-    transition: all 0.3s;
-}
-
-.admin-link:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #00d9ff;
-}
-
 .cron-preview {
     padding: 8px 12px;
     background: rgba(255, 255, 255, 0.05);
@@ -41,23 +26,6 @@
     font-size: 0.85rem;
     color: #00ff88;
     margin-top: 4px;
-}
-
-.test-result {
-    margin-top: 12px;
-    padding: 12px;
-    border-radius: 8px;
-    font-size: 0.9rem;
-}
-
-.test-result.success {
-    background: rgba(0, 255, 136, 0.1);
-    color: #00ff88;
-}
-
-.test-result.error {
-    background: rgba(255, 71, 87, 0.1);
-    color: #ff4757;
 }
 
 .data-source-config {
@@ -103,19 +71,4 @@
 
 .token-input {
     font-family: monospace;
-}
-
-.channel-test-area {
-    margin-top: 16px;
-}
-
-.channel-test-area textarea {
-    margin-bottom: 12px;
-}
-
-.form-hint {
-    display: block;
-    margin-top: 4px;
-    color: #666;
-    font-size: 0.8rem;
 }

@@ -58,7 +58,13 @@
 
         <div id="settingsSection" class="section">
             <div class="card">
-                <h2 class="card-title">📄 配置预览</h2>
+                <div class="card-header">
+                    <h2 class="card-title">📄 配置预览</h2>
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="importConfig()">📥 导入配置</button>
+                        <button class="btn btn-secondary" onclick="exportConfig()">📤 导出配置</button>
+                    </div>
+                </div>
                 <div class="gist-config-preview">
                     <h4>当前配置文件结构</h4>
                     <pre id="configPreview"></pre>
@@ -66,29 +72,15 @@
             </div>
 
             <div class="card">
-                <h2 class="card-title">🔄 数据同步</h2>
+                <h2 class="card-title">☁️ GitHub 连接</h2>
                 <div class="form-group">
                     <label class="form-label">GitHub Token</label>
                     <input type="password" id="githubToken" class="form-input token-input" placeholder="输入 GitHub Personal Access Token（需要 gist 权限）">
                 </div>
-                <div class="form-group">
-                    <label class="form-label">配置 Gist ID</label>
-                    <input type="text" id="configGistId" class="form-input" placeholder="存储配置的 Gist ID">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">GitHub 用户名</label>
-                    <input type="text" id="githubOwner" class="form-input" placeholder="GitHub 用户名">
-                </div>
                 <div class="btn-group">
-                    <button class="btn btn-primary" onclick="saveSettings()">保存到浏览器</button>
-                    <button class="btn btn-secondary" onclick="syncConfig()">从 Gist 读取</button>
-                    <button class="btn btn-primary" onclick="saveConfigToGist()">保存到 Gist</button>
+                    <button class="btn btn-primary" onclick="verifyAndLoadConfig()">连接并加载配置</button>
+                    <button class="btn btn-secondary" onclick="showClearTokenConfirm()">清除 Token</button>
                 </div>
-            </div>
-
-            <div class="card">
-                <button class="btn btn-secondary" onclick="exportConfig()">导出配置(本地)</button>
-                <button class="btn btn-danger" onclick="resetConfig()">重置配置</button>
             </div>
         </div>
     </div>
@@ -215,6 +207,11 @@
     </div>
 
     <div class="toast" id="toast"></div>
+    <input type="file" id="configFileInput" accept=".json" style="display: none;" onchange="handleConfigFile(event)">
+
+    <footer class="footer">
+        <p>🔐 数据存储于 GitHub Gist</p>
+    </footer>
 
     <script src="js/index.js"></script>
 </body>

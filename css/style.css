@@ -263,29 +263,6 @@ input:checked + .slider:before {
     transform: translateX(22px);
 }
 
-.toggle-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.toggle-row:last-child {
-    border-bottom: none;
-}
-
-.toggle-label {
-    color: #fff;
-    font-size: 0.95rem;
-}
-
-.toggle-desc {
-    color: #888;
-    font-size: 0.8rem;
-    margin-top: 4px;
-}
-
 .field-mapping-item {
     display: flex;
     gap: 12px;
@@ -537,34 +514,6 @@ input:checked + .slider:before {
     background: #3498db;
 }
 
-.config-status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px;
-    background: rgba(0, 255, 136, 0.1);
-    border-radius: 8px;
-    margin-bottom: 20px;
-}
-
-.status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #00ff88;
-}
-
-.status-text {
-    color: #00ff88;
-    font-size: 0.9rem;
-}
-
-.sync-btn {
-    margin-left: auto;
-    padding: 6px 12px;
-    font-size: 0.8rem;
-}
-
 @media (max-width: 600px) {
     header h1 {
         font-size: 1.8rem;
@@ -578,4 +527,12 @@ input:checked + .slider:before {
     .btn-group {
         flex-wrap: wrap;
     }
+}
+
+.footer {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+    font-size: 0.85rem;
+    margin-top: 40px;
 }

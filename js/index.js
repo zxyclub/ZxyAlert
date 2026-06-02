@@ -21,30 +21,192 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
-function loadSettings() {
-    document.getElementById('githubToken').value = localStorage.getItem(STORAGE_KEY_TOKEN) || '';
-    document.getElementById('configGistId').value = localStorage.getItem(STORAGE_KEY_GIST_ID) || '';
-    document.getElementById('githubOwner').value = localStorage.getItem(STORAGE_KEY_OWNER) || '';
+async function verifyAndLoadConfig() {
+    const token = document.getElementById('githubToken').value;
+    
+    if (!token) {
+        showToast('请输入 Token', 'error');
+        return;
+    }
+
+    showToast('正在验证 Token...', 'info');
+
+    try {
+        // 验证 token 并获取用户信息
+        const userResponse = await fetch('https://api.github.com/user', {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/vnd.github+json'
+            }
+        });
+
+        if (!userResponse.ok) {
+            throw new Error('Token 无效');
+        }
+
+        const userData = await userResponse.json();
+        const owner = userData.login;
+
+        // 保存 token 和 owner
+        localStorage.setItem(STORAGE_KEY_TOKEN, token);
+        localStorage.setItem(STORAGE_KEY_OWNER, owner);
+
+        showToast('Token 验证成功！正在加载配置...', 'success');
+
+        // 自动查找 gist 并加载配置
+        await autoFindAndLoadGist(token, owner);
+
+    } catch (error) {
+        showToast('验证失败: ' + error.message, 'error');
+    }
 }
 
-function saveSettings() {
-    const token = document.getElementById('githubToken').value;
-    const gistId = document.getElementById('configGistId').value;
-    const owner = document.getElementById('githubOwner').value;
+async function autoFindAndLoadGist(token, owner) {
+    try {
+        let page = 1;
+        const perPage = 100;
 
-    localStorage.setItem(STORAGE_KEY_TOKEN, token);
-    localStorage.setItem(STORAGE_KEY_GIST_ID, gistId);
-    localStorage.setItem(STORAGE_KEY_OWNER, owner);
+        while (true) {
+            const gistResponse = await fetch(`https://api.github.com/gists?page=${page}&per_page=${perPage}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github+json'
+                }
+            });
 
-    showToast('配置已保存', 'success');
-    updateConfigPreview();
+            if (!gistResponse.ok) {
+                throw new Error('获取 Gist 列表失败');
+            }
+
+            const gists = await gistResponse.json();
+
+            if (gists.length === 0) {
+                break;
+            }
+
+            for (const gist of gists) {
+                if (gist.files && gist.files['zxyalert-config.json']) {
+                    // 找到配置 gist，加载它
+                    localStorage.setItem(STORAGE_KEY_GIST_ID, gist.id);
+                    
+                    const configData = await fetchGistFile(gist.id, owner, 'zxyalert-config.json');
+                    config = validateConfig(configData);
+                    saveConfig();
+                    renderTasks();
+                    renderChannels();
+                    updateConfigPreview();
+
+                    showToast('✅ 配置加载成功！', 'success');
+                    return;
+                }
+            }
+
+            page++;
+        }
+
+        // 没找到配置 gist，创建新的
+        showToast('未找到配置文件，将创建新配置', 'info');
+        config = { channels: [], tasks: [] };
+        await createNewConfigGist(token, owner);
+        saveConfig();
+        renderTasks();
+        renderChannels();
+        updateConfigPreview();
+        showToast('✅ 新配置已创建！', 'success');
+
+    } catch (error) {
+        showToast('加载配置失败: ' + error.message, 'error');
+    }
+}
+
+async function fetchGistFile(gistId, owner, fileName) {
+    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+    const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github+json'
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error('获取 Gist 文件失败');
+    }
+
+    const gist = await response.json();
+    if (gist.files && gist.files[fileName]) {
+        return JSON.parse(gist.files[fileName].content);
+    }
+    throw new Error('文件中未找到: ' + fileName);
+}
+
+async function createNewConfigGist(token, owner) {
+    const response = await fetch('https://api.github.com/gists', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/vnd.github+json'
+        },
+        body: JSON.stringify({
+            description: 'ZxyAlert 配置文件',
+            public: false,
+            files: {
+                'zxyalert-config.json': {
+                    content: JSON.stringify(config, null, 2)
+                }
+            }
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error('创建 Gist 失败');
+    }
+
+    const gist = await response.json();
+    localStorage.setItem(STORAGE_KEY_GIST_ID, gist.id);
+    showToast('已创建新的配置 Gist', 'success');
+}
+
+function showClearTokenConfirm() {
+    openConfirmModal('清除 Token', '确定要清除所有配置信息吗？', () => {
+        localStorage.removeItem(STORAGE_KEY_TOKEN);
+        localStorage.removeItem(STORAGE_KEY_GIST_ID);
+        localStorage.removeItem(STORAGE_KEY_OWNER);
+        localStorage.removeItem(STORAGE_KEY_CONFIG);
+        document.getElementById('githubToken').value = '';
+        config = { channels: [], tasks: [] };
+        renderTasks();
+        renderChannels();
+        updateConfigPreview();
+        showToast('Token 已清除', 'success');
+    });
+}
+
+function openConfirmModal(title, message, callback) {
+    document.getElementById('confirmModalTitle').textContent = title;
+    document.getElementById('confirmModalMessage').textContent = message;
+    confirmCallback = callback;
+    document.getElementById('confirmModal').classList.add('show');
+}
+
+function closeConfirmModal() {
+    document.getElementById('confirmModal').classList.remove('show');
+    confirmCallback = null;
+}
+
+function handleConfirm() {
+    if (confirmCallback) {
+        confirmCallback();
+        closeConfirmModal();
+    }
 }
 
 function loadConfig() {
     const saved = localStorage.getItem(STORAGE_KEY_CONFIG);
     if (saved) {
         try {
-            config = JSON.parse(saved);
+            const loadedConfig = JSON.parse(saved);
+            config = validateConfig(loadedConfig);
         } catch (e) {
             config = { channels: [], tasks: [] };
         }
@@ -61,6 +223,144 @@ function saveConfig() {
 
 function updateConfigPreview() {
     document.getElementById('configPreview').textContent = JSON.stringify(config, null, 2);
+}
+
+// XSS 防护：转义 HTML 特殊字符
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 深度转义对象中的字符串值
+function escapeConfigValues(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'string') return escapeHtml(obj);
+    if (Array.isArray(obj)) return obj.map(escapeConfigValues);
+    if (typeof obj === 'object') {
+        const newObj = {};
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                newObj[key] = escapeConfigValues(obj[key]);
+            }
+        }
+        return newObj;
+    }
+    return obj;
+}
+
+// 验证配置对象结构，防止恶意注入
+function validateConfig(loadedConfig) {
+    if (!loadedConfig || typeof loadedConfig !== 'object') {
+        throw new Error('配置格式无效');
+    }
+    
+    const safeConfig = {
+        channels: [],
+        tasks: []
+    };
+    
+    // 验证并清理 channels
+    if (Array.isArray(loadedConfig.channels)) {
+        safeConfig.channels = loadedConfig.channels.map(channel => ({
+            id: String(channel.id || Date.now() + Math.random()).slice(0, 50),
+            name: escapeHtml(String(channel.name || '')).slice(0, 200),
+            type: ['wecom', 'dingding', 'webhook', 'wxtpl'].includes(channel.type) ? channel.type : 'wecom',
+            enable: typeof channel.enable === 'boolean' ? channel.enable : true,
+            webhook: typeof channel.webhook === 'string' ? escapeHtml(channel.webhook).slice(0, 500) : '',
+            appId: typeof channel.appId === 'string' ? escapeHtml(channel.appId).slice(0, 200) : '',
+            appSecret: typeof channel.appSecret === 'string' ? escapeHtml(channel.appSecret).slice(0, 200) : '',
+            templateId: typeof channel.templateId === 'string' ? escapeHtml(channel.templateId).slice(0, 200) : '',
+            openId: typeof channel.openId === 'string' ? escapeHtml(channel.openId).slice(0, 200) : ''
+        }));
+    }
+    
+    // 验证并清理 tasks
+    if (Array.isArray(loadedConfig.tasks)) {
+        safeConfig.tasks = loadedConfig.tasks.map(task => ({
+            id: String(task.id || Date.now() + Math.random()).slice(0, 50),
+            taskName: escapeHtml(String(task.taskName || '')).slice(0, 200),
+            cron: escapeHtml(String(task.cron || '0 8 * * *')).slice(0, 50),
+            remindDays: parseInt(task.remindDays) || 3,
+            channelId: escapeHtml(String(task.channelId || '')).slice(0, 50),
+            message: escapeHtml(String(task.message || '')).slice(0, 1000),
+            enable: typeof task.enable === 'boolean' ? task.enable : true,
+            dataSource: {
+                gistId: escapeHtml(String(task.dataSource?.gistId || '')).slice(0, 100),
+                fileName: escapeHtml(String(task.dataSource?.fileName || '')).slice(0, 200),
+                fieldMap: {}
+            }
+        }));
+        
+        // 单独处理 fieldMap
+        safeConfig.tasks.forEach((task, index) => {
+            const originalFieldMap = loadedConfig.tasks[index]?.dataSource?.fieldMap;
+            if (originalFieldMap && typeof originalFieldMap === 'object') {
+                for (const key in originalFieldMap) {
+                    if (Object.prototype.hasOwnProperty.call(originalFieldMap, key)) {
+                        task.dataSource.fieldMap[escapeHtml(key).slice(0, 100)] = 
+                            escapeHtml(String(originalFieldMap[key])).slice(0, 200);
+                    }
+                }
+            }
+        });
+    }
+    
+    return safeConfig;
+}
+
+// 导出配置
+function exportConfig() {
+    const dataStr = JSON.stringify(config, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `zxyalert-config-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    showToast('配置已导出！', 'success');
+}
+
+// 导入配置
+function importConfig() {
+    document.getElementById('configFileInput').click();
+}
+
+// 处理导入的配置文件
+function handleConfigFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const loadedConfig = JSON.parse(e.target.result);
+            const safeConfig = validateConfig(loadedConfig);
+            
+            openConfirmModal('确认导入', '导入将覆盖当前配置，确定继续吗？', async () => {
+                config = safeConfig;
+                saveConfig();
+                renderTasks();
+                renderChannels();
+                updateConfigPreview();
+                
+                // 自动上传到 Gist（如果已登录）
+                await uploadConfigToGist();
+                showToast('配置已成功导入！', 'success');
+            });
+        } catch (error) {
+            showToast('配置导入失败：' + error.message, 'error');
+        }
+    };
+    reader.readAsText(file);
+    
+    // 重置文件输入，允许重复导入相同文件
+    event.target.value = '';
 }
 
 function renderTasks() {
@@ -82,18 +382,18 @@ function renderTasks() {
         return `
             <div class="task-item">
                 <div class="task-header">
-                    <span class="task-name">📋 ${task.taskName}</span>
+                    <span class="task-name">📋 ${escapeHtml(task.taskName)}</span>
                     <span class="task-status ${statusClass}">${statusText}</span>
                 </div>
                 <div class="task-info">
-                    <span>⏰ ${task.cron}</span>
+                    <span>⏰ ${escapeHtml(task.cron)}</span>
                     <span>📅 提前 ${task.remindDays} 天</span>
-                    <span>📡 ${channel ? channel.name : '未配置渠道'}</span>
+                    <span>📡 ${channel ? escapeHtml(channel.name) : '未配置渠道'}</span>
                 </div>
                 <div class="task-actions">
-                    <button class="btn btn-secondary" onclick="openEditTaskModal('${task.id}')">编辑</button>
-                    <button class="btn btn-secondary" onclick="triggerTask('${task.id}')">🧪 手动触发</button>
-                    <button class="btn btn-danger" onclick="deleteTask('${task.id}')">删除</button>
+                    <button class="btn btn-secondary" onclick="openEditTaskModal('${escapeHtml(task.id)}')">编辑</button>
+                    <button class="btn btn-secondary" onclick="triggerTask('${escapeHtml(task.id)}')">🧪 手动触发</button>
+                    <button class="btn btn-danger" onclick="deleteTask('${escapeHtml(task.id)}')">删除</button>
                 </div>
             </div>
         `;
@@ -117,24 +417,25 @@ function renderChannels() {
 
     container.innerHTML = config.channels.map(channel => {
         const typeText = getChannelTypeText(channel.type);
+        const webhookDisplay = channel.type === 'wxtpl' ? '微信公众号' : (channel.webhook || '');
         return `
             <div class="channel-item">
                 <div class="channel-header">
-                    <span class="channel-name">📡 ${channel.name}</span>
-                    <span class="channel-type">${typeText}</span>
+                    <span class="channel-name">📡 ${escapeHtml(channel.name)}</span>
+                    <span class="channel-type">${escapeHtml(typeText)}</span>
                 </div>
-                <div class="channel-desc">${(channel.webhook || channel.type === 'wxtpl' ? '微信公众号' : '').substring(0, 50)}${(channel.webhook || '').length > 50 ? '...' : ''}</div>
+                <div class="channel-desc">${escapeHtml(webhookDisplay.substring(0, 50))}${webhookDisplay.length > 50 ? '...' : ''}</div>
                 <div class="task-actions">
-                    <button class="btn btn-secondary" onclick="openEditChannelModal('${channel.id}')">编辑</button>
-                    <button class="btn btn-secondary" onclick="quickTestChannel('${channel.id}')">🧪 测试</button>
-                    <button class="btn btn-danger" onclick="deleteChannel('${channel.id}')">删除</button>
+                    <button class="btn btn-secondary" onclick="openEditChannelModal('${escapeHtml(channel.id)}')">编辑</button>
+                    <button class="btn btn-secondary" onclick="quickTestChannel('${escapeHtml(channel.id)}')">🧪 测试</button>
+                    <button class="btn btn-danger" onclick="deleteChannel('${escapeHtml(channel.id)}')">删除</button>
                 </div>
             </div>
         `;
     }).join('');
 
     select.innerHTML = config.channels.map(c => 
-        `<option value="${c.id}">${c.name}</option>`
+        `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`
     ).join('');
 }
 
@@ -278,12 +579,12 @@ function removeFieldMapping(btn) {
     btn.parentElement.remove();
 }
 
-function saveTask() {
+async function saveTask() {
     const fieldItems = document.querySelectorAll('#fieldMappingList .field-mapping-item');
     const fieldMap = {};
     fieldItems.forEach(item => {
-        const key = item.children[0].value.trim();
-        const value = item.children[1].value.trim();
+        const key = escapeHtml(item.children[0].value.trim());
+        const value = escapeHtml(item.children[1].value.trim());
         if (key && value) {
             fieldMap[key] = value;
         }
@@ -291,15 +592,15 @@ function saveTask() {
 
     const taskData = {
         id: editingTaskId || Date.now().toString(),
-        taskName: document.getElementById('taskName').value.trim(),
-        cron: document.getElementById('taskCron').value.trim(),
+        taskName: escapeHtml(document.getElementById('taskName').value.trim()),
+        cron: escapeHtml(document.getElementById('taskCron').value.trim()),
         remindDays: parseInt(document.getElementById('taskRemindDays').value) || 3,
-        channelId: document.getElementById('taskChannel').value,
-        message: document.getElementById('taskMessage').value.trim(),
+        channelId: escapeHtml(document.getElementById('taskChannel').value),
+        message: escapeHtml(document.getElementById('taskMessage').value.trim()),
         enable: document.getElementById('taskEnabled').checked,
         dataSource: {
-            gistId: document.getElementById('dataSourceGistId').value.trim(),
-            fileName: document.getElementById('dataSourceFileName').value.trim(),
+            gistId: escapeHtml(document.getElementById('dataSourceGistId').value.trim()),
+            fileName: escapeHtml(document.getElementById('dataSourceFileName').value.trim()),
             fieldMap: fieldMap
         }
     };
@@ -324,24 +625,28 @@ function saveTask() {
         if (index !== -1) {
             config.tasks[index] = taskData;
         }
-        showToast('任务已更新', 'success');
     } else {
         config.tasks.push(taskData);
-        showToast('任务已创建', 'success');
     }
 
     saveConfig();
     renderTasks();
     closeTaskModal();
+
+    // 自动上传到 GitHub
+    await uploadConfigToGist();
 }
 
-function deleteTask(taskId) {
-    if (confirm('确定要删除这个任务吗？')) {
+async function deleteTask(taskId) {
+    openConfirmModal('删除任务', '确定要删除这个任务吗？', async () => {
         config.tasks = config.tasks.filter(t => t.id !== taskId);
         saveConfig();
         renderTasks();
+        
+        // 自动上传到 GitHub
+        await uploadConfigToGist();
         showToast('任务已删除', 'success');
-    }
+    });
 }
 
 function triggerTask(taskId) {
@@ -449,11 +754,6 @@ function renderMessage(template, data, remindDays, channelType) {
 }
 
 async function sendMessage(channel, message) {
-    if (channel.type === 'wxtpl') {
-        // 调用 GitHub API 触发 workflow
-        return triggerGitHubWorkflow();
-    }
-
     if (!channel.webhook) {
         throw new Error('渠道 Webhook 未配置');
     }
@@ -623,39 +923,20 @@ function closeChannelModal() {
     editingChannelId = null;
 }
 
-function openConfirmModal(title, message, callback) {
-    document.getElementById('confirmModalTitle').textContent = title;
-    document.getElementById('confirmModalMessage').textContent = message;
-    confirmCallback = callback;
-    document.getElementById('confirmModal').classList.add('show');
-}
-
-function closeConfirmModal() {
-    document.getElementById('confirmModal').classList.remove('show');
-    confirmCallback = null;
-}
-
-function handleConfirm() {
-    if (confirmCallback) {
-        confirmCallback();
-        closeConfirmModal();
-    }
-}
-
-function saveChannel() {
+async function saveChannel() {
     const type = document.getElementById('channelType').value;
     const channelData = {
         id: editingChannelId || Date.now().toString(),
-        name: document.getElementById('channelName').value.trim(),
+        name: escapeHtml(document.getElementById('channelName').value.trim()),
         type: type,
         enable: document.getElementById('channelEnabled').checked
     };
 
     if (type === 'wxtpl') {
-        channelData.appId = document.getElementById('channelAppId').value.trim();
-        channelData.appSecret = document.getElementById('channelAppSecret').value.trim();
-        channelData.templateId = document.getElementById('channelTemplateId').value.trim();
-        channelData.openId = document.getElementById('channelOpenId').value.trim();
+        channelData.appId = escapeHtml(document.getElementById('channelAppId').value.trim());
+        channelData.appSecret = escapeHtml(document.getElementById('channelAppSecret').value.trim());
+        channelData.templateId = escapeHtml(document.getElementById('channelTemplateId').value.trim());
+        channelData.openId = escapeHtml(document.getElementById('channelOpenId').value.trim());
         
         if (!channelData.appId) {
             showToast('请输入 AppID', 'error');
@@ -674,7 +955,7 @@ function saveChannel() {
             return;
         }
     } else {
-        channelData.webhook = document.getElementById('channelWebhook').value.trim();
+        channelData.webhook = escapeHtml(document.getElementById('channelWebhook').value.trim());
         if (!channelData.webhook) {
             showToast('请输入 Webhook 地址', 'error');
             return;
@@ -691,28 +972,66 @@ function saveChannel() {
         if (index !== -1) {
             config.channels[index] = channelData;
         }
-        showToast('渠道已更新', 'success');
     } else {
         config.channels.push(channelData);
-        showToast('渠道已创建', 'success');
     }
 
     saveConfig();
     renderChannels();
     closeChannelModal();
+
+    // 自动上传到 GitHub
+    await uploadConfigToGist();
 }
 
-function deleteChannel(channelId) {
+async function deleteChannel(channelId) {
     if (config.tasks.some(t => t.channelId === channelId)) {
         showToast('该渠道正在被任务使用，无法删除', 'error');
         return;
     }
 
-    if (confirm('确定要删除这个渠道吗？')) {
+    openConfirmModal('删除渠道', '确定要删除这个渠道吗？', async () => {
         config.channels = config.channels.filter(c => c.id !== channelId);
         saveConfig();
         renderChannels();
+        
+        // 自动上传到 GitHub
+        await uploadConfigToGist();
         showToast('渠道已删除', 'success');
+    });
+}
+
+async function uploadConfigToGist() {
+    const gistId = localStorage.getItem(STORAGE_KEY_GIST_ID);
+    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+
+    if (!gistId || !token) {
+        console.log('未配置 Gist 或 Token，跳过上传');
+        return;
+    }
+
+    try {
+        showToast('正在保存到 GitHub...', 'info');
+        
+        await fetch(`https://api.github.com/gists/${gistId}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/vnd.github+json'
+            },
+            body: JSON.stringify({
+                files: {
+                    'zxyalert-config.json': {
+                        content: JSON.stringify(config, null, 2)
+                    }
+                }
+            })
+        });
+
+        showToast('已保存到 GitHub', 'success');
+    } catch (error) {
+        showToast('保存失败: ' + error.message, 'error');
     }
 }
 
@@ -786,88 +1105,6 @@ function fetchGistContent(gistId, owner, fileName = null) {
     });
 }
 
-function syncConfig() {
-    const gistId = localStorage.getItem(STORAGE_KEY_GIST_ID);
-    const owner = localStorage.getItem(STORAGE_KEY_OWNER);
-
-    if (!gistId || !owner) {
-        showToast('请先配置 Gist ID 和用户名', 'error');
-        return;
-    }
-
-    showToast('正在同步配置...', 'info');
-
-    fetchGistContent(gistId, owner)
-    .then(configData => {
-        config = configData;
-        saveConfig();
-        renderTasks();
-        renderChannels();
-        showToast('配置同步成功', 'success');
-    })
-    .catch(err => {
-        showToast('同步失败: ' + err.message, 'error');
-    });
-}
-
-function saveConfigToGist() {
-    const gistId = localStorage.getItem(STORAGE_KEY_GIST_ID);
-    const owner = localStorage.getItem(STORAGE_KEY_OWNER);
-    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
-
-    if (!gistId || !owner || !token) {
-        showToast('保存到 Gist 需要配置 Token、Gist ID 和用户名', 'error');
-        return;
-    }
-
-    showToast('正在保存配置到 Gist...', 'info');
-
-    const fileName = 'zxyalert-config.json';
-    
-    fetch(`https://api.github.com/gists/${gistId}`, {
-        method: 'PATCH',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/vnd.github+json'
-        },
-        body: JSON.stringify({
-            files: {
-                [fileName]: {
-                    content: JSON.stringify(config, null, 2)
-                }
-            }
-        })
-    }).then(response => {
-        if (!response.ok) throw new Error('保存配置失败');
-        showToast('配置已保存到 Gist', 'success');
-    }).catch(err => {
-        showToast('保存失败: ' + err.message, 'error');
-    });
-}
-
-function exportConfig() {
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'zxyalert-config.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('配置已导出', 'success');
-}
-
-function resetConfig() {
-    if (confirm('确定要重置所有配置吗？这将清空所有任务和渠道配置！')) {
-        config = { channels: [], tasks: [] };
-        saveConfig();
-        renderTasks();
-        renderChannels();
-        showToast('配置已重置', 'success');
-    }
-}
 
 function switchSection(sectionId) {
     document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
@@ -877,27 +1114,10 @@ function switchSection(sectionId) {
     document.getElementById(`${sectionId}Section`).classList.add('active');
 }
 
-function loadAvatar() {
-    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
-    if (token) {
-        fetch('https://api.github.com/user', {
-            headers: {
-                'Authorization': 'Bearer ' + token,
-                'Accept': 'application/vnd.github+json'
-            }
-        }).then(res => res.json())
-        .then(data => {
-            if (data.avatar_url) {
-                document.getElementById('avatar').src = data.avatar_url;
-            }
-        }).catch(() => {});
-    }
-}
+
 
 document.addEventListener('DOMContentLoaded', () => {
-    loadSettings();
     loadConfig();
-    loadAvatar();
     updateConfigPreview();
 
     document.querySelectorAll('.nav-tab').forEach(tab => {

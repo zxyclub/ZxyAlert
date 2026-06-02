@@ -1,110 +1,47 @@
-# ZxyAlert
+# 免责声明
 
-全可视化自动化提醒平台，支持多类型推送渠道扩展，自动执行各类消息推送、自动化提醒任务。
+## 📋 项目性质
 
-## 核心架构
+本项目（ZxyAlert）是一个**个人自用的自动化提醒工具**，所有数据（包括配置文件、推送渠道、任务设置等）均为项目使用者的个人数据。
 
-- **前端**: H5 页面，提供可视化配置界面
-- **配置存储**: GitHub Gist
-- **定时执行**: GitHub Actions
+## 🔒 数据隐私
 
-## 特性
+- **数据所有权**：所有通过本项目存储和管理的数据（包括但不限于 GitHub Gist 中的配置文件、localStorage 中的缓存数据）均属于使用者个人所有
+- **数据访问**：项目配置存储在用户的私密 GitHub Gist 中，仅用户本人持有有效的 GitHub Token 才能访问
+- **第三方无法使用**：其他任何人无法访问或使用您的个人配置和数据，除非您主动分享您的 GitHub Token 或 Gist 链接
 
-- ✅ 所有项目无需改造即可接入
-- ✅ 所有定时、配置、字段映射前端可视化修改
-- ✅ 仓库代码永久固定，无需更新
-- ✅ 完美适配所有存放在 Gist 的个人项目
-- ✅ 推送渠道可自由扩展（企业微信、钉钉、Webhook）
+## ⚠️ 使用风险
 
-## 快速开始
+**本项目仅供个人学习和自用，使用前请仔细阅读以下条款：**
 
-### 1. 配置 GitHub Secrets
+1. **使用风险自负**：您在使用本项目时，应自行评估风险。因使用本项目导致的任何损失（包括但不限于数据丢失、服务中断、安全漏洞等），项目作者概不负责。
 
-在仓库设置中添加以下 Secrets：
+2. **代码借鉴风险**：如果您或他人借鉴、复制或修改本项目的代码用于其他用途，由此产生的任何法律纠纷、安全问题或其他后果，均由借鉴者自行承担，项目作者概不负责。
 
-- `GITHUB_TOKEN`: GitHub 个人访问令牌
-- `CONFIG_GIST_ID`: 存储配置的 Gist ID
-- `GIST_OWNER`: GitHub 用户名
+3. **数据安全**：虽然本项目已采取合理的安全措施（如 HTTPS 传输、本地存储加密等），但互联网环境存在固有风险。请妥善保管您的 GitHub Token 和其他敏感信息。
 
-### 2. 配置结构
+## 🛠️ 技术说明
 
-Gist 配置文件格式：
+本项目使用的所有技术均为免费开源技术：
 
-```json
-{
-  "channels": [
-    {
-      "id": "channel-id",
-      "name": "企业微信",
-      "type": "wecom",
-      "webhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx",
-      "enable": true
-    }
-  ],
-  "tasks": [
-    {
-      "id": "task-id",
-      "taskName": "zxycycle提醒",
-      "enable": true,
-      "cron": "0 8 * * *",
-      "remindDays": 3,
-      "channelId": "channel-id",
-      "message": "提醒：距离下次经期还有 {{daysLeft}} 天",
-      "dataSource": {
-        "gistId": "xxx",
-        "fileName": "zxycycle-data.json",
-        "fieldMap": {
-          "lastPeriodDate": "lastPeriodDate",
-          "cycleDays": "cycleDays"
-        }
-      }
-    }
-  ]
-}
-```
+- **前端技术**：HTML5、CSS3、JavaScript（原生，无框架依赖）
+- **配置存储**：GitHub Gist（免费服务）
+- **定时任务**：GitHub Actions（免费服务）
+- **后端脚本**：Python（开源语言）
 
-### 3. 字段映射
+以上技术服务均由第三方提供，其服务条款和可用性请参考各服务提供商的说明。
 
-支持自定义字段映射，在任务配置中设置 `fieldMap`：
+## 📄 免责声明
 
-- `lastPeriodDate`: 上次经期日期
-- `cycleDays`: 周期天数
+**作者不对以下情况承担任何责任：**
 
-### 4. 消息模板
+- 因使用本项目导致的任何直接或间接损失
+- 因 GitHub 服务中断或变更导致的数据访问问题
+- 因用户操作不当或安全意识不足导致的数据泄露
+- 因借鉴或修改本项目代码产生的任何问题
 
-支持变量替换：
+---
 
-- `{{daysLeft}}`: 剩余天数
-- `{{nextDate}}`: 下次日期
-- `{{lastDate}}`: 上次日期
-- `{{任意映射字段}}`: 自定义字段
+**使用本项目即表示您已阅读并同意本免责声明。**
 
-## 推送渠道
-
-- **企业微信机器人**: `type: "wecom"`
-- **钉钉机器人**: `type: "dingding"`
-- **通用 Webhook**: `type: "webhook"`
-
-## 部署
-
-可以部署到：
-- GitHub Pages
-- Vercel
-- Cloudflare Pages
-
-## 项目结构
-
-```
-ZxyAlert/
-├── css/
-│   ├── style.css
-│   └── index.css
-├── js/
-│   └── index.js
-├── .github/
-│   └── workflows/
-│       └── run.yml
-├── scripts/
-│   └── run_alert.py
-└── index.html
-```
+**最后更新日期**：2026年6月
