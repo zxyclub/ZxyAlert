@@ -288,17 +288,21 @@ function validateConfig(loadedConfig) {
             dataSource: {
                 gistId: escapeHtml(String(task.dataSource?.gistId || '')).slice(0, 100),
                 fileName: escapeHtml(String(task.dataSource?.fileName || '')).slice(0, 200),
+                dataType: ['single', 'list'].includes(task.dataSource?.dataType) ? task.dataSource.dataType : 'single',
+                dateField: escapeHtml(String(task.dataSource?.dateField || '')).slice(0, 50),
+                titleField: escapeHtml(String(task.dataSource?.titleField || '')).slice(0, 50),
+                timeField: escapeHtml(String(task.dataSource?.timeField || '')).slice(0, 50),
                 fieldMap: {}
             }
         }));
-        
+
         // 单独处理 fieldMap
         safeConfig.tasks.forEach((task, index) => {
             const originalFieldMap = loadedConfig.tasks[index]?.dataSource?.fieldMap;
             if (originalFieldMap && typeof originalFieldMap === 'object') {
                 for (const key in originalFieldMap) {
                     if (Object.prototype.hasOwnProperty.call(originalFieldMap, key)) {
-                        task.dataSource.fieldMap[escapeHtml(key).slice(0, 100)] = 
+                        task.dataSource.fieldMap[escapeHtml(key).slice(0, 100)] =
                             escapeHtml(String(originalFieldMap[key])).slice(0, 200);
                     }
                 }
@@ -505,6 +509,10 @@ function openAddTaskModal() {
     document.getElementById('taskChannel').value = '';
     document.getElementById('dataSourceGistId').value = '';
     document.getElementById('dataSourceFileName').value = '';
+    document.getElementById('dataSourceType').value = 'single';
+    document.getElementById('dataSourceDateField').value = '';
+    document.getElementById('dataSourceTitleField').value = '';
+    document.getElementById('dataSourceTimeField').value = '';
     document.getElementById('taskMessage').value = '💡 提醒：距离目标日期还有 {{daysLeft}} 天！\n📅 预计日期：{{nextDate}}';
     document.getElementById('taskEnabled').checked = true;
     document.getElementById('fieldMappingList').innerHTML = `
@@ -514,6 +522,7 @@ function openAddTaskModal() {
             <button class="remove-field" onclick="removeFieldMapping(this)">×</button>
         </div>
     `;
+    updateDataSourceFields();
     updateCronPreview();
     document.getElementById('taskModal').classList.add('show');
 }
@@ -533,7 +542,11 @@ function openEditTaskModal(taskId) {
     if (task.dataSource) {
         document.getElementById('dataSourceGistId').value = task.dataSource.gistId || '';
         document.getElementById('dataSourceFileName').value = task.dataSource.fileName || '';
-        
+        document.getElementById('dataSourceType').value = task.dataSource.dataType || 'single';
+        document.getElementById('dataSourceDateField').value = task.dataSource.dateField || '';
+        document.getElementById('dataSourceTitleField').value = task.dataSource.titleField || '';
+        document.getElementById('dataSourceTimeField').value = task.dataSource.timeField || '';
+
         let fieldHtml = '';
         if (task.dataSource.fieldMap) {
             Object.keys(task.dataSource.fieldMap).forEach(key => {
@@ -555,6 +568,7 @@ function openEditTaskModal(taskId) {
         `;
     }
 
+    updateDataSourceFields();
     updateCronPreview();
     document.getElementById('taskModal').classList.add('show');
 }
@@ -579,6 +593,23 @@ function removeFieldMapping(btn) {
     btn.parentElement.remove();
 }
 
+function updateDataSourceFields() {
+    const dataType = document.getElementById('dataSourceType').value;
+    const singleFields = document.getElementById('singleFields');
+    const listFields = document.getElementById('listFields');
+    const singleMessageGroup = document.getElementById('singleMessageGroup');
+
+    if (dataType === 'list') {
+        singleFields.style.display = 'none';
+        listFields.style.display = 'block';
+        singleMessageGroup.style.display = 'none';
+    } else {
+        singleFields.style.display = 'block';
+        listFields.style.display = 'none';
+        singleMessageGroup.style.display = 'block';
+    }
+}
+
 async function saveTask() {
     const fieldItems = document.querySelectorAll('#fieldMappingList .field-mapping-item');
     const fieldMap = {};
@@ -589,6 +620,8 @@ async function saveTask() {
             fieldMap[key] = value;
         }
     });
+
+    const dataType = document.getElementById('dataSourceType').value;
 
     const taskData = {
         id: editingTaskId || Date.now().toString(),
@@ -601,6 +634,10 @@ async function saveTask() {
         dataSource: {
             gistId: escapeHtml(document.getElementById('dataSourceGistId').value.trim()),
             fileName: escapeHtml(document.getElementById('dataSourceFileName').value.trim()),
+            dataType: dataType,
+            dateField: escapeHtml(document.getElementById('dataSourceDateField').value.trim()),
+            titleField: escapeHtml(document.getElementById('dataSourceTitleField').value.trim()),
+            timeField: escapeHtml(document.getElementById('dataSourceTimeField').value.trim()),
             fieldMap: fieldMap
         }
     };

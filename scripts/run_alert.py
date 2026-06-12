@@ -251,12 +251,15 @@ def build_list_remind_message(remind_items, task_name):
     """构建列表提醒消息"""
     if not remind_items:
         return None
-    
+
+    # 去掉任务名称中可能的"提醒"后缀，避免重复
+    clean_name = task_name.replace('提醒', '').strip()
+
     # 汇总消息
     if len(remind_items) == 1:
         item = remind_items[0]
         return {
-            'first': f'📌 {task_name}提醒',
+            'first': f'📌 {clean_name}提醒',
             'nextDate': item['title'],
             'daysLeft': f"还有 {item['daysLeft']} 天"
         }
@@ -265,9 +268,9 @@ def build_list_remind_message(remind_items, task_name):
         titles = [item['title'] for item in remind_items[:3]]  # 最多显示3条
         if len(remind_items) > 3:
             titles.append(f"...等{len(remind_items)}条")
-        
+
         return {
-            'first': f'📌 {task_name}提醒 ({len(remind_items)}条)',
+            'first': f'📌 {clean_name}提醒 ({len(remind_items)}条)',
             'nextDate': '、'.join(titles),
             'daysLeft': '即将到期'
         }

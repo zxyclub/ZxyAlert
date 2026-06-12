@@ -118,16 +118,39 @@
                     <label class="form-label">文件名</label>
                     <input type="text" id="dataSourceFileName" class="form-input" placeholder="数据源文件名，如 zxycycle-data.json">
                 </div>
-            </div>
-            <div class="form-group">
-                <label class="form-label">字段映射</label>
-                <div style="font-size: 0.85rem; color: #666; margin-bottom: 8px;">
-                    左边：消息模板中使用的变量名 | 右边：数据源 JSON 中的字段名
+                <div class="form-group">
+                    <label class="form-label">数据类型</label>
+                    <select id="dataSourceType" class="form-select" onchange="updateDataSourceFields()">
+                        <option value="single">单一数据（如经期预测）</option>
+                        <option value="list">列表数据（如待办、倒计时）</option>
+                    </select>
                 </div>
-                <div id="fieldMappingList"></div>
-                <button class="add-field" onclick="addFieldMapping()">+ 添加字段映射</button>
+                <div id="singleFields" class="data-source-fields">
+                    <div class="form-group">
+                        <label class="form-label">字段映射</label>
+                        <div style="font-size: 0.85rem; color: #666; margin-bottom: 8px;">
+                            左边：消息模板中使用的变量名 | 右边：数据源 JSON 中的字段名
+                        </div>
+                        <div id="fieldMappingList"></div>
+                        <button class="add-field" onclick="addFieldMapping()">+ 添加字段映射</button>
+                    </div>
+                </div>
+                <div id="listFields" class="data-source-fields" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">日期字段</label>
+                        <input type="text" id="dataSourceDateField" class="form-input" placeholder="日期字段名，如 date、nextDueDate">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">标题字段</label>
+                        <input type="text" id="dataSourceTitleField" class="form-input" placeholder="标题字段名，如 title">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">时间字段（可选）</label>
+                        <input type="text" id="dataSourceTimeField" class="form-input" placeholder="时间字段名，如 time">
+                    </div>
+                </div>
             </div>
-            <div class="form-group">
+            <div class="form-group" id="singleMessageGroup">
                 <label class="form-label">提醒文案</label>
                 <textarea id="taskMessage" class="form-textarea" placeholder="支持变量替换，如 {{lastPeriodDate}}、{{cycleDays}}"></textarea>
             </div>
