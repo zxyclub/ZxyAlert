@@ -281,7 +281,7 @@ function validateConfig(loadedConfig) {
             id: String(task.id || Date.now() + Math.random()).slice(0, 50),
             taskName: escapeHtml(String(task.taskName || '')).slice(0, 200),
             cron: escapeHtml(String(task.cron || '0 8 * * *')).slice(0, 50),
-            remindDays: parseInt(task.remindDays) || 3,
+            remindDays: (task.remindDays != null && task.remindDays !== '') ? Number(task.remindDays) : 3,
             channelId: escapeHtml(String(task.channelId || '')).slice(0, 50),
             message: escapeHtml(String(task.message || '')).slice(0, 1000),
             enable: typeof task.enable === 'boolean' ? task.enable : true,

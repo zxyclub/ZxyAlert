@@ -191,11 +191,11 @@ def should_remind_item(item, date_field, remind_days):
     """检查单个列表项是否需要提醒"""
     if not item.get('remind', True):  # 默认提醒，除非明确设置为 False
         return False
-    
+
     date_str = item.get(date_field)
     if not date_str:
         return False
-    
+
     try:
         # 支持多种日期格式
         for fmt in ['%Y-%m-%d', '%Y/%m/%d', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S']:
@@ -207,12 +207,20 @@ def should_remind_item(item, date_field, remind_days):
         else:
             # 最后尝试只解析日期部分
             target_date = datetime.strptime(date_str[:10], '%Y-%m-%d')
-        
+
         days_left = (target_date - datetime.now()).days
-        
-        # 检查自定义提醒天数
-        item_remind_days = item.get('remindDays', remind_days)
-        
+
+        # 当任务的 remind_days 为 0 时，使用事项自身的 remindDays 设置
+        if remind_days == 0:
+            item_remind_days = item.get('remindDays', 0)
+        else:
+            # 优先使用事项自己的 remindDays，其次用任务级的
+            item_remind_days = item.get('remindDays', remind_days)
+
+        # 如果 item_remind_days 为 0，表示不限制天数，只要有剩余天数就提醒
+        if item_remind_days == 0:
+            return days_left >= 0
+
         return 0 <= days_left <= item_remind_days
     except Exception as e:
         print(f"  [Debug] 日期解析失败: {date_str}, {e}")
