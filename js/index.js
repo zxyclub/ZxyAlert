@@ -627,7 +627,7 @@ async function saveTask() {
         id: editingTaskId || Date.now().toString(),
         taskName: escapeHtml(document.getElementById('taskName').value.trim()),
         cron: escapeHtml(document.getElementById('taskCron').value.trim()),
-        remindDays: parseInt(document.getElementById('taskRemindDays').value) || 3,
+        remindDays: document.getElementById('taskRemindDays').value !== '' ? Number(document.getElementById('taskRemindDays').value) : 3,
         channelId: escapeHtml(document.getElementById('taskChannel').value),
         message: escapeHtml(document.getElementById('taskMessage').value.trim()),
         enable: document.getElementById('taskEnabled').checked,

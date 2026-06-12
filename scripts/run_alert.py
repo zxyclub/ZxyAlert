@@ -266,21 +266,26 @@ def build_list_remind_message(remind_items, task_name):
     # 汇总消息
     if len(remind_items) == 1:
         item = remind_items[0]
+        days_text = f"还有 {item['daysLeft']} 天" if item['daysLeft'] >= 0 else "已到期"
         return {
             'first': f'📌 {clean_name}提醒',
             'nextDate': item['title'],
-            'daysLeft': f"还有 {item['daysLeft']} 天"
+            'daysLeft': days_text
         }
     else:
-        # 多条提醒，汇总显示
-        titles = [item['title'] for item in remind_items[:3]]  # 最多显示3条
-        if len(remind_items) > 3:
+        # 多条提醒，显示每条的标题和剩余天数
+        titles = []
+        for item in remind_items[:10]:  # 最多显示n条
+            days_text = f"{item['daysLeft']}天" if item['daysLeft'] >= 0 else "已到期"
+            titles.append(f"{item['title']}({days_text})")
+        
+        if len(remind_items) > 5:
             titles.append(f"...等{len(remind_items)}条")
 
         return {
             'first': f'📌 {clean_name}提醒 ({len(remind_items)}条)',
             'nextDate': '、'.join(titles),
-            'daysLeft': '即将到期'
+            'daysLeft': '查看详情'
         }
 
 def run():
