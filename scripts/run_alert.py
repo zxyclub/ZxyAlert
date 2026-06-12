@@ -187,6 +187,91 @@ def should_remind(data, remind_days):
         print(f"  [Debug] 日期解析失败: {e}")
         return False
 
+def should_remind_item(item, date_field, remind_days):
+    """检查单个列表项是否需要提醒"""
+    if not item.get('remind', True):  # 默认提醒，除非明确设置为 False
+        return False
+    
+    date_str = item.get(date_field)
+    if not date_str:
+        return False
+    
+    try:
+        # 支持多种日期格式
+        for fmt in ['%Y-%m-%d', '%Y/%m/%d', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S']:
+            try:
+                target_date = datetime.strptime(date_str.split()[0] if ' ' in date_str else date_str, fmt.split()[0])
+                break
+            except:
+                continue
+        else:
+            # 最后尝试只解析日期部分
+            target_date = datetime.strptime(date_str[:10], '%Y-%m-%d')
+        
+        days_left = (target_date - datetime.now()).days
+        
+        # 检查自定义提醒天数
+        item_remind_days = item.get('remindDays', remind_days)
+        
+        return 0 <= days_left <= item_remind_days
+    except Exception as e:
+        print(f"  [Debug] 日期解析失败: {date_str}, {e}")
+        return False
+
+def process_list_data(source_data, data_source, remind_days):
+    """处理列表类型数据，返回需要提醒的项目"""
+    if not isinstance(source_data, list):
+        print(f"  [Debug] 数据不是列表类型: {type(source_data)}")
+        return []
+    
+    date_field = data_source.get('dateField', 'date')
+    title_field = data_source.get('titleField', 'title')
+    
+    remind_items = []
+    for item in source_data:
+        if should_remind_item(item, date_field, remind_days):
+            date_str = item.get(date_field, '')
+            title = item.get(title_field, '未知')
+            
+            try:
+                target_date = datetime.strptime(date_str[:10], '%Y-%m-%d')
+                days_left = (target_date - datetime.now()).days
+            except:
+                days_left = 0
+            
+            remind_items.append({
+                'title': title,
+                'date': date_str,
+                'daysLeft': days_left
+            })
+    
+    return remind_items
+
+def build_list_remind_message(remind_items, task_name):
+    """构建列表提醒消息"""
+    if not remind_items:
+        return None
+    
+    # 汇总消息
+    if len(remind_items) == 1:
+        item = remind_items[0]
+        return {
+            'first': f'📌 {task_name}提醒',
+            'nextDate': item['title'],
+            'daysLeft': f"还有 {item['daysLeft']} 天"
+        }
+    else:
+        # 多条提醒，汇总显示
+        titles = [item['title'] for item in remind_items[:3]]  # 最多显示3条
+        if len(remind_items) > 3:
+            titles.append(f"...等{len(remind_items)}条")
+        
+        return {
+            'first': f'📌 {task_name}提醒 ({len(remind_items)}条)',
+            'nextDate': '、'.join(titles),
+            'daysLeft': '即将到期'
+        }
+
 def run():
     print("Starting ZxyAlert...")
     
@@ -236,6 +321,7 @@ def run():
                     data_source = task.get('dataSource', {})
                     gist_id = data_source.get('gistId', '').strip()
                     file_name = data_source.get('fileName', '').strip()
+                    data_type = data_source.get('dataType', 'single')  # single 或 list
                     
                     if gist_id and file_name:
                         data_owner = data_source.get('owner') or GIST_OWNER
@@ -245,44 +331,61 @@ def run():
                             file_name
                         )
                         
-                        field_map = data_source.get('fieldMap', {})
-                        mapped_data = map_fields(source_data, field_map)
-                        
                         remind_days = task.get('remindDays', 7)
                         
-                        if not should_remind(mapped_data, remind_days) and not is_manual_trigger:
-                            days_left = 0
-                            if mapped_data.get('nextPeriodPredicted'):
-                                try:
-                                    next_date = datetime.strptime(mapped_data['nextPeriodPredicted'], '%Y-%m-%d')
-                                    days_left = (next_date - datetime.now()).days
-                                except:
-                                    pass
-                            print(f"Skipping: {days_left} days left (outside remind range)")
+                        # 根据数据类型处理
+                        if data_type == 'list':
+                            # 列表类型数据（如待办、倒计时）
+                            remind_items = process_list_data(source_data, data_source, remind_days)
+                            
+                            if not remind_items and not is_manual_trigger:
+                                print(f"Skipping: no items need reminder")
+                            else:
+                                message = build_list_remind_message(remind_items, task['taskName'])
+                                if message:
+                                    send_message(channel, message)
+                                    print(f"Successfully sent message for task: {task['taskName']} ({len(remind_items)} items)")
                         else:
-                            # 无论是定时触发还是手动触发，都发送正常消息
-                            if channel['type'] == 'wxtpl':
-                                # 为微信模板消息构建专门的字典格式
-                                message = {}
-                                today = datetime.now()
-                                
+                            # 单一数据类型（如经期预测）
+                            field_map = data_source.get('fieldMap', {})
+                            mapped_data = map_fields(source_data, field_map)
+                            
+                            if not should_remind(mapped_data, remind_days) and not is_manual_trigger:
+                                days_left = 0
                                 if mapped_data.get('nextPeriodPredicted'):
                                     try:
                                         next_date = datetime.strptime(mapped_data['nextPeriodPredicted'], '%Y-%m-%d')
-                                        days_left = (next_date - today).days
-                                        message['daysLeft'] = str(days_left)
-                                        message['nextDate'] = next_date.strftime('%Y年%m月%d日')
-                                        message['first'] = f"距离例假还有 {days_left} 天！"
+                                        days_left = (next_date - datetime.now()).days
                                     except:
+                                        pass
+                                print(f"Skipping: {days_left} days left (outside remind range)")
+                            else:
+                                # 无论是定时触发还是手动触发，都发送正常消息
+                                if channel['type'] == 'wxtpl':
+                                    # 为微信模板消息构建专门的字典格式
+                                    message = {}
+                                    today = datetime.now()
+                                    
+                                    if mapped_data.get('nextPeriodPredicted'):
+                                        try:
+                                            next_date = datetime.strptime(mapped_data['nextPeriodPredicted'], '%Y-%m-%d')
+                                            days_left = (next_date - today).days
+                                            message['daysLeft'] = str(days_left)
+                                            message['nextDate'] = next_date.strftime('%Y年%m月%d日')
+                                            message['first'] = f"距离例假还有 {days_left} 天！"
+                                        except:
+                                            message['first'] = '💡'
+                                            message['nextDate'] = '-'
+                                            message['daysLeft'] = '-'
+                                    else:
                                         message['first'] = '💡'
                                         message['nextDate'] = '-'
                                         message['daysLeft'] = '-'
                                 else:
-                                    message['first'] = '💡'
-                                    message['nextDate'] = '-'
-                                    message['daysLeft'] = '-'
-                            else:
-                                message = render_message(task.get('message', ''), mapped_data)
+                                    message = render_message(task.get('message', ''), mapped_data)
+                                
+                                send_message(channel, message)
+                                print(f"Successfully sent message for task: {task['taskName']}")
                     else:
                         if channel['type'] == 'wxtpl':
                             message = {
@@ -292,9 +395,6 @@ def run():
                             }
                         else:
                             message = task.get('message', '提醒任务执行')
-                    
-                    send_message(channel, message)
-                    print(f"Successfully sent message for task: {task['taskName']}")
                     
                 except Exception as e:
                     print(f"Error executing task {task['taskName']}: {e}")
